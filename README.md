@@ -1,16 +1,17 @@
-﻿# TextTune (?띿뒪?? ??MVP ?ㅼ틦?대뱶 v2
+# TextTune
 
-?띿뒪??湲곕컲 ?뚯븙 ?앹꽦 ?뱀꽌鍮꾩뒪(PRD 湲곗?)瑜?鍮좊Ⅴ寃?寃利앺븯湲??꾪븳 ??ㅽ깮 ?ㅼ틦?대뱶?낅땲?? 濡쒓렇?????꾨＼?꾪듃 ?낅젰 ??鍮꾨룞湲??앹꽦 ???ъ깮/?ㅼ슫濡쒕뱶 ??蹂닿????뚮줈?곌? ?숈옉?섎ŉ, Hugging Face Spaces(湲곕낯媛? `CryptoThaler/melody`)瑜?吏곸젒 ?몄텧???ㅻ뵒?ㅻ? ?앹꽦?⑸땲??
+TexTune은 **텍스트 프롬프트 기반 음악 생성**을 빠르게 검증할 수 있는 풀스택 샘플 프로젝트입니다. 간단한 이메일(게스트) 로그인 → 프롬프트 입력 → 비동기 생성 → 감상/다운로드 → 보관함 저장까지 한 번에 체험할 수 있습니다. 백엔드는 Node.js/Express, 프런트는 순수 HTML/JS 구성이며, 음악 생성은 Hugging Face Space(`CryptoThaler/melody`)를 호출하는 방식으로 이루어집니다.
 
-## 援ъ꽦
+## 구성
 
-- `api/src/server.js` ??Express API (?몄쬆, ?묒뾽 ?? Hugging Face ?몄텧, ?ㅽ듃由щ컢/?ㅼ슫濡쒕뱶)
-- `api/src/audio/synth.js` ??濡쒖뺄 媛쒕컻/諛깆뾽??媛꾨떒 WAV ?앹꽦湲?Mock)
-- `api/public/*.html` ??理쒖냼 UI (?쒕뵫, ?앹꽦, ?몃옓, 蹂닿???
-- `api/public/js/app.js` ??怨듯넻 JS ?ы띁(?몄뀡 ?좎?, API ?몄텧)
-- `api/storage/` ???앹꽦???ㅻ뵒???뚯씪 ????붾젆?곕━ (?고??꾩뿉 ?앹꽦)
+- `api/src/server.js` – Express API (인증, 작업 큐, Space 호출, 보관함/스트리밍)
+- `api/src/audio/spaces.js` – Gradio Space 호출/파일 저장 어댑터
+- `api/src/audio/synth.js` – Space를 쓰지 못할 때 사용하는 간단한 WAV Mock 렌더러
+- `api/public/*.html` – 최소한의 UI (랜딩·생성·보관함·감상 페이지)
+- `api/public/js/app.js` – 공통 프런트엔드 스크립트 (세션 유지, API 호출)
+- `api/storage/` – 생성된 오디오 파일이 저장되는 로컬 디렉터리
 
-## ?ㅽ뻾 諛⑸쾿
+## 실행 방법
 
 ```bash
 cd api
@@ -18,12 +19,12 @@ npm install
 npm start
 ```
 
-- 釉뚮씪?곗??먯꽌 `http://localhost:4000` ?묒냽
-- ?쒕쾭 以묐떒: ?ㅽ뻾 以묒씤 ?곕??먯뿉??`Ctrl+C`
+- 서버는 기본적으로 `http://localhost:4000`에서 동작합니다.
+- 종료 시에는 실행 중인 터미널에서 `Ctrl + C`를 누르세요.
 
-## ?섍꼍 蹂??(`api/.env` ?덉떆)
+## 환경 변수 (`api/.env`)
 
-`env
+```env
 PORT=4000
 JWT_SECRET=dev-secret-change-me
 ALLOW_ORIGIN=http://localhost:4000
@@ -32,68 +33,54 @@ MAX_DURATION_SECONDS=12
 # Hugging Face Space 설정
 HF_API_TOKEN=hf_xxx                  # 선택: Space 인증/ZeroGPU 확장용 토큰
 HF_SPACE_ID=CryptoThaler/melody      # 필수: 사용할 Gradio Space ID
-`
+```
 
-- HF_SPACE_ID를 지정하면 백엔드가 해당 Space를 직접 호출합니다.
-- HF_API_TOKEN은 Space가 로그인이나 추가 쿼터를 요구할 때 사용합니다. 토큰이 없으면 공개 Space 허용 범위 내에서만 호출됩니다.
-- 두 값이 모두 비어 있으면 내부 mock 렌더러(synthesizeWav)가 대신 사용됩니다.
+- `HF_SPACE_ID`를 지정하면 해당 Space를 직접 호출합니다. Space UI가 로그인 안내만 제공하는 경우에는 API 호출이 막혀 있으니 먼저 확인하세요.
+- `HF_API_TOKEN`은 Space가 로그인/ZeroGPU 증설을 요구할 때 사용합니다. 토큰이 없어도 공개 Space라면 기본적인 호출은 가능하지만, 무료 ZeroGPU 한도(무료 4분/일, PRO 25분/일)에 막힐 수 있습니다.
+- 두 값이 모두 비어 있으면 Space 대신 내부 mock 렌더러(`synthesizeWav`)가 실행됩니다.
 
-## ?뚮줈??UI)
+## 동작 플로우
 
-1. ?쒕뵫 ?섏씠吏(`index.html`)?먯꽌 ?뚭컻/CTA ???쒖깮?깊븯湲겸??대┃
-2. ?앹꽦 ?섏씠吏(`generate.html`)?먯꽌 ?꾨＼?꾪듃 ?낅젰 ??`?앹꽦` 踰꾪듉 ??`/v1/generations` ?몄텧
-3. ?묒뾽 ??諛깆뿏???먯꽌 Hugging Face Space ?몄텧 ???ㅻ뵒???뚯씪 ??????곹깭 ?낅뜲?댄듃
-4. ?꾨즺 ??`track.html`濡??대룞 ???ㅽ듃由щ컢/?ㅼ슫濡쒕뱶/?ㅼ떆 ?앹꽦 媛??
-5. `library.html`?먯꽌 理쒓렐 ?앹꽦 ?몃옓 由ъ뒪?? ?몃씪???ъ깮/??젣
+1. 사용자가 이메일(자동 게스트)로 로그인합니다.
+2. `generate.html`에서 프롬프트를 입력하고 `/v1/generations` API를 호출합니다.
+3. 서버는 작업 큐에 Job을 적재하고, 별도 백그라운드 루틴에서 Hugging Face Space를 호출해 오디오를 생성/저장합니다.
+4. 폴링(`GET /v1/generations/:id`)으로 진행률을 확인하다가 완료되면 감상 페이지로 이동합니다.
+5. 생성된 트랙은 `/library.html`에서 날짜별로 묶어 확인할 수 있고, 스트리밍·다운로드·삭제 기능을 제공합니다.
 
-## API ?붿빟
+## API 요약
 
-- `POST /v1/auth/login` ???대찓??湲곕컲 ?꾩떆 濡쒓렇??(?먮룞 寃뚯뒪???몄뀡???ъ슜)
-- `GET /v1/me` ???몄뀡 ?뺤씤
-- `POST /v1/generations` ???앹꽦 ?붿껌 `{ prompt, duration?, samplerate?, seed?, quality? }`
-- `GET /v1/generations/:id` ???묒뾽 ?곹깭 `queued|running|succeeded|failed`
-- `GET /v1/library` / `DELETE /v1/library/:id`
-- `GET /v1/tracks/:id` ??硫뷀??곗씠??(?꾨＼?꾪듃/?뺤옣 ?꾨＼?꾪듃/?뚮씪誘명꽣)
-- `GET /v1/stream/:id` ??Range ?ㅽ듃由щ컢 (MP3/WAV ???щ㎎ ?먮룞 泥섎━)
-- `GET /v1/download/:id` ??泥⑤? ?ㅼ슫濡쒕뱶 (?뚯씪 ?뺤옣???먮룞 諛섏쁺)
+- `POST /v1/auth/login` – 간단한 이메일 기반 로그인(게스트 자동 발급)
+- `GET /v1/me` – 현재 세션 정보
+- `POST /v1/generations` – 음악 생성 요청 `{ prompt, duration?, samplerate?, seed?, quality? }`
+- `GET /v1/generations/:id` – Job 상태 `queued|running|succeeded|failed` 및 결과
+- `GET /v1/library` / `DELETE /v1/library/:id` – 보관함 조회/삭제
+- `GET /v1/tracks/:id` – 단일 트랙 메타데이터
+- `GET /v1/stream/:id` – Range 지원 스트리밍
+- `GET /v1/download/:id` – 오디오 파일 다운로드
 
-## Hugging Face Space 연동 개요
+## Hugging Face Space 연동
 
-- HF_SPACE_ID로 지정한 Gradio Space에 @gradio/client를 통해 접속합니다.
-- Space 구성요소(라디오/슬라이더/텍스트 등)를 읽어 프롬프트, 길이, 시드 등을 자동 매핑한 뒤 /predict 엔드포인트를 호출합니다.
-- Space가 오디오를 data: URL이나 ile=... 링크로 반환하면 서버가 다시 다운로드해 로컬 스토리지에 저장하고, 동일한 파이프라인(라이브러리·스트리밍·다운로드)에 연결합니다.
-- Space가 인증/ZeroGPU 쿼터를 요구할 경우 HF_API_TOKEN을 설정해 로그인 토큰으로 전달할 수 있습니다.
+- 서버는 `@gradio/client`로 Space 메타데이터를 읽어, “프롬프트/Duration/Seed/샘플레이트” 등의 입력 컴포넌트를 찾아 값을 자동 주입합니다.
+- Space가 오디오를 `data:` URL 혹은 `file=...` 경로로 반환하면 API가 다시 다운로드해 로컬에 저장하고, 스트리밍·다운로드 API와 연결합니다.
+- ZeroGPU 무료 한도를 넘으면 Space가 오류 메시지를 보내며, 이때는 `SpaceQuotaError`로 잡혀 `/v1/generations/:id` 응답에 친절한 에러 문구와 코드(`space_quota`)가 포함됩니다.
+- 더 안정적인 사용을 원하면 PRO 구독 또는 자체 하드웨어가 할당된 Space를 운영해야 합니다.
 
-## ?꾩옱 ?쒖빟 & 李멸퀬
+## 로컬 Mock 렌더러
 
-- ?곗씠????μ? ?몃찓紐⑤━(Map) + 濡쒖뺄 ?뚯씪 ?쒖뒪?쒖엯?덈떎. ?쒕쾭 ?ъ떆????湲곕줉??珥덇린?붾맗?덈떎.
-- ?몄쬆? 媛쒕컻 ?몄쓽???먮룞 寃뚯뒪??濡쒓렇???쇰줈 援ы쁽?섏뼱 ?덉뒿?덈떎. ?ㅼ젣 ?쒕퉬?ㅼ뿉?쒕뒗 OIDC/OAuth ?깆쑝濡?援먯껜?섏꽭??
-- Hugging Face ?몄텧 ???명띁?곗뒪 吏???쒓컙? 紐⑤뜽 濡쒕뵫 ?곹깭???곕씪 10~30珥??댁긽?????덉뒿?덈떎.
-- MP3/FLAC ???대뼡 ?щ㎎???대젮?ъ? 紐⑤뜽/?붾뱶?ъ씤???ㅼ젙???곕씪 ?щ씪吏묐땲?? ?꾩옱??Content-Type ?ㅻ뜑瑜?湲곗??쇰줈 ?뺤옣?먮? ?ㅼ젙?⑸땲??
+Space 설정이 비어 있거나 호출에 실패하면 `synthesizeWav`가 단순한 사운드를 생성해 개발 편의성을 높여 줍니다. 실제 서비스 배포 시에는 반드시 유효한 Space를 지정하세요.
 
-## ?ㅼ쓬 ?④퀎 ?쒖븞
+## 트러블슈팅
 
-1. **?곗씠?곕쿋?댁뒪 ?꾩엯** ??Postgres/Prisma ?깆쑝濡?`users/jobs/tracks` ?뚯씠釉?援ъ꽦, ?묒뾽 ?대젰 蹂댁〈
-2. **?ㅽ넗由ъ? ?댁쟾** ??S3/R2 ?깆뿉 ?ㅻ뵒???낅줈?????쒕챸 URL ?쒓났
-3. **?ㅼ젣 ?몄쬆 ?꾩엯** ???대찓???뚯뀥 濡쒓렇?? ?몄뀡/?좏겙 愿由?媛쒖꽑
-4. **異붾줎 ?뚯빱 遺꾨━** ??Node API ??Python Hugging Face Space 異붾줎 ?뚯빱 媛????? Redis) 援ъ꽦, ?ㅼ????꾩썐
-5. **?꾨윴?몄뿏??怨좊룄??* ??Next.js ?깆쑝濡??꾪솚, SSE/WebSocket 湲곕컲 ?ㅼ떆媛?吏꾪뻾瑜? ?꾨＼?꾪듃 ?쒗뵆由?UI ?뺤옣
+- `api is not defined` – `js/app.js` 로딩 실패입니다. HTML에서 `<script src="js/app.js"></script>` 경로가 맞는지 확인 후 강력 새로고침(Ctrl+F5)하세요.
+- Hugging Face 401/Quota 오류 – `HF_API_TOKEN` 누락, 토큰 권한 부족, 혹은 ZeroGPU 일일 한도를 초과했습니다. 토큰을 갱신하거나 PRO 구독을 고려하세요.
+- Job이 `failed` – Space 응답을 콘솔에서 확인하세요. 프롬프트 길이 제한, Space 내부 오류, 네트워크 문제 등이 원인일 수 있습니다.
 
-## ?몃윭釉붿뒋??
+## 향후 개선 아이디어
 
-- `api is not defined` ??`js/app.js` 濡쒕뵫 ?ㅽ뙣. HTML?먯꽌 `<script src="js/app.js"></script>` ?뺤씤 ??媛뺣젰 ?덈줈怨좎묠(Ctrl+F5)
-- Hugging Face 401 ??`HF_API_TOKEN` ?꾨씫 ?먮뒗 沅뚰븳 遺議? ?좏겙??諛쒓툒 ??`.env`???ㅼ젙
-- ?묒뾽 ?ㅽ뙣 ??肄섏넄 濡쒓렇(`Render job failed ...`)瑜??뺤씤. 紐⑤뜽 濡쒕뵫, ?꾨＼?꾪듃 ?쒗븳, ?좏겙 荑쇳꽣 ?깆쓽 ?먯씤???덉쓣 ???덉뒿?덈떎.
+1. **Persistent Storage 도입** – Postgres/Prisma 등으로 `users/jobs/tracks` 데이터를 DB에 저장하고, 작업 이력을 유지합니다.
+2. **외부 스토리지 연동** – S3/R2 등의 오브젝트 스토리지에 오디오를 업로드하고 서명 URL을 제공합니다.
+3. **실제 인증/결제 연동** – 이메일/소셜 로그인 및 사용자별 Space 토큰 연결 기능을 제공합니다.
+4. **Space 프록시 워커** – 다수의 Space 호출을 큐/워커 구조(예: Redis)로 분리해 안정성을 높입니다.
+5. **프런트엔드 고도화** – Next.js, React 등의 프레임워크로 UI를 개선하고 SSE/WebSocket 기반 진행률 업데이트를 적용합니다.
 
-?꾩슂??湲곕뒫?대굹 ?듯빀 ?묒뾽?????덈떎硫??뚮젮二쇱꽭?? 怨꾩냽 ?뺤옣???섍컝 ???덈룄濡?援ъ“瑜??⑥닚?섍쾶 ?좎??덉뒿?덈떎.
-
-
-## Hugging Face Spaces ?곕룞
-
-- HF_SPACE_ID瑜?吏?뺥븯硫?@gradio/client媛 Space 而댄룷?뚰듃/?붾뱶?ъ씤???뺣낫瑜??먮룞?쇰줈 ?쎌뼱 ?곸슜?⑸땲??
-- ?낅젰 而댄룷?뚰듃???쇰꺼(ex. prompt/duration/seed/sample rate)??異붾줎??媛믪쓣 ?ｋ뒗?? Space瑜?諛붽? 寃쎌슦 湲곕낯 ?낅젰怨??щ씪?대뜑 援ъ꽦???덈뒗吏 泥댄겕?섏꽭??
-- Space ?묐떟??data: URL ??file=... 留곹겕濡??대젮?ㅻ㈃, API媛 ?먮룞?쇰줈 ?ㅼ떆 ?ㅼ슫濡쒕뱶?섏뿬 ?뚯씪濡???ν빀?덈떎.
-- ?꾩옱 湲곕낯媛믪쑝濡??ъ슜?섎뒗 CryptoThaler/melody Space??怨듦컻 predict ?⑥닔瑜??쒓났???뚯븙 ?묐떟???뚮젮以띾땲?? ?ㅻⅨ Space瑜??ъ슜???? 蹂닿린?먯꽌 濡쒓렇?몃쭔 ?붽뎄?섎뒗 吏 ?щ?瑜?諛섎뱶???뺤씤?섏꽭?? (?? AxolotlTurdz/facebook-musicgen-small ? Sign in ?덈궡留??쒓났)
-
-
-
+필요한 기능이나 통합 작업이 있다면 이 README를 참고해 빠르게 확장할 수 있습니다. 즐거운 음악 생성 실험 되세요!

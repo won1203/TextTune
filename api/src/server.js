@@ -10,7 +10,6 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { synthesizeWav } = require('./audio/synth');
-const { generateStableAudioTrack } = require('./audio/huggingface');
 const { generateSpaceAudioTrack } = require('./audio/spaces');
 
 const PORT = Number(process.env.PORT || 4000);
@@ -18,8 +17,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || `http://localhost:${PORT}`;
 const MAX_DURATION_SECONDS = Number(process.env.MAX_DURATION_SECONDS || 12);
 const HF_SPACE_ID = (process.env.HF_SPACE_ID || '').trim();
-const HF_API_TOKEN = (process.env.HF_API_TOKEN || '').trim();
-const HF_ENABLED = Boolean(HF_SPACE_ID || HF_API_TOKEN);
+const HF_ENABLED = Boolean(HF_SPACE_ID);
 
 const app = express();
 
@@ -146,16 +144,6 @@ async function runJob(job) {
         seed: job.params.seed,
         outDir: tracksDir,
         filenamePrefix: trackId,
-        spaceId: HF_SPACE_ID,
-      });
-    } else if (HF_API_TOKEN) {
-      renderInfo = await generateStableAudioTrack({
-        prompt: job.prompt_expanded,
-        durationSec: job.params.duration ?? undefined,
-        samplerate: job.params.samplerate,
-        seed: job.params.seed,
-        outDir: tracksDir,
-        filenamePrefix: trackId,
       });
     } else {
       const wavPath = path.join(tracksDir, `${trackId}.wav`);
@@ -199,7 +187,11 @@ async function runJob(job) {
     broadcastProgress(job);
   } catch (e) {
     job.status = 'failed';
-    job.error = 'render_error';
+    const errMsg = typeof e === 'string'
+      ? e
+      : (e?.userMessage || e?.message || e?.details || 'render_error');
+    job.error = errMsg;
+    job.error_code = e?.code || 'render_error';
     console.error('Render job failed', e);
   } finally {
     clearInterval(tick);
@@ -214,6 +206,14 @@ function expandPrompt(raw) {
   if (!base) return '';
   // Very light template per PRD
   return `${base}, instrumental, clean mix, mastered, no vocals`;
+}
+
+function promptTitleFromTrack(track) {
+  if (!track) return '트랙';
+  const raw = (track.prompt_raw || track.prompt_expanded || '').trim();
+  if (raw) return raw;
+  const idPart = (track.id || '').toString().slice(0, 8) || 'track';
+  return `트랙 #${idPart}`;
 }
 
 // Create generation job
@@ -236,6 +236,7 @@ app.post('/v1/generations', authRequired, (req, res) => {
     created_at: new Date().toISOString(),
     finished_at: null,
     error: null,
+    error_code: null,
     audio_url: null,
   };
   db.jobs.set(jobId, job);
@@ -254,6 +255,7 @@ app.get('/v1/generations/:jobId', authRequired, (req, res) => {
     audio_url: job.audio_url,
     params: job.params,
     error: job.error,
+    error_code: job.error_code || null,
     job_id: job.id,
     track_id: job.result_track_id || null,
   });
@@ -273,7 +275,9 @@ app.get('/v1/library', authRequired, (req, res) => {
       format: t.format,
       audio_url: `/v1/stream/${t.id}`,
       download_url: `/v1/download/${t.id}`,
+      prompt_raw: t.prompt_raw,
       prompt_expanded: t.prompt_expanded,
+      prompt_title: promptTitleFromTrack(t),
     }));
   res.json({ items, next_cursor: null });
 });
@@ -301,6 +305,7 @@ app.get('/v1/tracks/:trackId', authRequired, (req, res) => {
     download_url: `/v1/download/${t.id}`,
     prompt_raw: t.prompt_raw,
     prompt_expanded: t.prompt_expanded,
+    prompt_title: promptTitleFromTrack(t),
     params: t.params,
   });
 });

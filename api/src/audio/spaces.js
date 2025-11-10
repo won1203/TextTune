@@ -4,6 +4,16 @@ const { Client } = require('@gradio/client');
 
 const DEFAULT_SPACE_ID = (process.env.HF_SPACE_ID || '').trim();
 
+class SpaceQuotaError extends Error {
+  constructor(message, details) {
+    super(message || 'Space quota exceeded');
+    this.name = 'SpaceQuotaError';
+    this.code = 'space_quota';
+    this.details = details || null;
+    this.userMessage = message || 'Space quota exceeded';
+  }
+}
+
 function ensureFetch() {
   if (typeof fetch !== 'function') {
     throw new Error('Global fetch is not available in this Node.js runtime.');
@@ -141,6 +151,26 @@ function selectDependency(config) {
   return prefer || backendFns[0] || null;
 }
 
+function extractSpaceErrorMessage(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err.message === 'string') return err.message;
+  if (err.status && typeof err.status.message === 'string') return err.status.message;
+  if (typeof err.detail === 'string') return err.detail;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return '';
+  }
+}
+
+function isQuotaMessage(message) {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes('zerogpu') || (lower.includes('login') && lower.includes('quota'));
+}
+
 async function fetchRemoteBuffer(url, accessToken) {
   ensureFetch();
   const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
@@ -236,7 +266,23 @@ async function generateSpaceAudioTrack({
   });
 
   const endpointName = dependency.api_name ? `/${dependency.api_name}` : dependency.id;
-  const result = await client.predict(endpointName, payload);
+  let result;
+  try {
+    result = await client.predict(endpointName, payload);
+  } catch (err) {
+    const detail = extractSpaceErrorMessage(err);
+    if (isQuotaMessage(detail)) {
+      throw new SpaceQuotaError(
+        'HF Space ZeroGPU 무료 할당량이 모두 사용되어 Space 추론이 중단되었습니다. Hugging Face에 로그인하거나 HF_API_TOKEN을 설정해 주세요.',
+        detail
+      );
+    }
+    if (err instanceof Error) throw err;
+    const generic = detail || 'HF Space 호출 중 알 수 없는 오류가 발생했습니다.';
+    const error = new Error(generic);
+    error.details = detail;
+    throw error;
+  }
 
   const audio = await extractAudioFromResult({
     dependency,
@@ -265,4 +311,5 @@ async function generateSpaceAudioTrack({
 
 module.exports = {
   generateSpaceAudioTrack,
+  SpaceQuotaError,
 };

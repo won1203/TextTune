@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>트랙 — TextTune</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:24px;background:#0f1222;color:#e8e8f0}
+      header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+      a{color:#8ad}
+      .card{background:#191c33;border:1px solid #2a2f55;border-radius:12px;padding:18px;margin:12px auto;max-width:820px}
+      .btn{background:#4b63ff;color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer}
+      .meta{font-size:14px;opacity:.85}
+      code{background:#0f1222;border:1px solid #2a2f55;padding:2px 4px;border-radius:4px}
+    </style>
+  </head>
+  <body>
+    <header>
+      <div><a href="/">TextTune</a></div>
+      <nav>
+        <a href="library.html">보관함</a>
+      </nav>
+    </header>
+
+    <div class="card" id="card">
+      <h2>트랙</h2>
+      <div id="player"></div>
+      <div style="margin-top:12px">
+        <a id="download" class="btn" href="#">다운로드</a>
+        <button id="regen" class="btn">같은 시드로 다시 생성</button>
+      </div>
+      <div class="meta" id="meta" style="margin-top:12px"></div>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+      (async () => {
+        await ensureAuthed();
+        const params = new URLSearchParams(location.search);
+        const id = params.get('id');
+        if (!id) { document.getElementById('card').innerHTML = '<p>잘못된 요청</p>'; return; }
+        try {
+          const t = await api(`/v1/tracks/${id}`);
+          document.getElementById('player').innerHTML = `<audio controls src="${t.audio_url}" style="width:100%"></audio>`;
+          document.getElementById('download').href = t.download_url;
+          document.getElementById('meta').innerHTML = `
+            <div>길이: <code>${t.duration}s</code> / 샘플레이트: <code>${t.samplerate}</code> / 포맷: <code>${t.format}</code></div>
+            <div style='margin-top:6px'>프롬프트: <code>${(t.prompt_raw||'').replace(/</g,'&lt;')}</code></div>
+            <div class='muted'>확장: <code>${(t.prompt_expanded||'').replace(/</g,'&lt;')}</code></div>
+          `;
+
+          document.getElementById('regen').addEventListener('click', async () => {
+            try {
+              const { job_id } = await api('/v1/generations', { method: 'POST', body: {
+                prompt: t.prompt_raw, duration: t.duration, samplerate: t.samplerate, seed: t.params?.seed ?? null, quality: t.params?.quality || 'draft'
+              }});
+              alert('다시 생성 시작! 보관함 또는 생성 페이지에서 확인하세요.');
+              window.location.href = 'generate.html';
+            } catch(e) { alert('오류: '+e.message); }
+          });
+        } catch (e) {
+          document.getElementById('card').innerHTML = '<p>트랙을 불러오지 못했습니다.</p>';
+        }
+      })();
+    </script>
+  </body>
+  </html>

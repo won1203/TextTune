@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>보관함 — TextTune</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:24px;background:#0f1222;color:#e8e8f0}
+      header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+      a{color:#8ad}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+      .card{background:#191c33;border:1px solid #2a2f55;border-radius:12px;padding:12px}
+      .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+      .btn{background:#4b63ff;color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer}
+      .danger{background:#c0392b}
+      .muted{opacity:.85}
+      audio{width:100%}
+    </style>
+  </head>
+  <body>
+    <header>
+      <div><a href="/">TextTune</a></div>
+      <nav>
+        <a href="generate.html">생성</a>
+      </nav>
+    </header>
+
+    <h2>내 보관함</h2>
+    <div id="grid" class="grid"></div>
+
+    <script src="js/app.js"></script>
+    <script>
+      (async () => {
+        await ensureAuthed();
+        await load();
+      })();
+
+      async function load() {
+        const { items } = await api('/v1/library?limit=20');
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        items.forEach(t => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class='row'><a href='track.html?id=${t.id}'>트랙 #${t.id.slice(0,8)}</a><span class='muted'>${new Date(t.created_at).toLocaleString()}</span></div>
+            <div class='muted'>${t.duration}s • ${t.samplerate}Hz • ${t.format}</div>
+            <audio controls src='${t.audio_url}'></audio>
+            <div class='row'>
+              <a class='btn' href='${t.download_url}'>다운로드</a>
+              <button class='btn danger' data-id='${t.id}'>삭제</button>
+            </div>
+          `;
+          card.querySelector('button[data-id]')?.addEventListener('click', async (e) => {
+            const id = e.target.getAttribute('data-id');
+            if (!confirm('정말 삭제하시겠어요?')) return;
+            await fetch(`/v1/library/${id}`, { method: 'DELETE', credentials: 'include' });
+            await load();
+          });
+          grid.appendChild(card);
+        });
+      }
+    </script>
+  </body>
+  </html>

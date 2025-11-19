@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('@gradio/client');
+const { ensureFetch } = require('../utils/http');
 
 const DEFAULT_SPACE_ID = (process.env.HF_SPACE_ID || '').trim();
 
@@ -11,12 +12,6 @@ class SpaceQuotaError extends Error {
     this.code = 'space_quota';
     this.details = details || null;
     this.userMessage = message || 'Space quota exceeded';
-  }
-}
-
-function ensureFetch() {
-  if (typeof fetch !== 'function') {
-    throw new Error('Global fetch is not available in this Node.js runtime.');
   }
 }
 

@@ -31,6 +31,7 @@ HF_SPACE_ID=TheStageAI/Elastic-musicgen-large
 - `DEFAULT_DURATION_SECONDS` : 길이를 전달하지 않았을 때 서버가 사용하는 기본 길이
 - `HF_SPACE_ID` : 호출할 Hugging Face Space ID. 비공개/로그인 필요 Space면 권한을 확인하세요.
 - `HF_API_TOKEN` : Space 접근 또는 ZeroGPU 할당량 확장을 위한 개인 토큰(필요 시 설정)
+- `GOOGLE_TRANSLATE_API_KEY` : 한글 프롬프트를 영어로 자동 번역하려면 Google Cloud Translation API 키를 설정하세요. 필요 시 `GOOGLE_TRANSLATE_SOURCE_LANG`/`GOOGLE_TRANSLATE_TARGET_LANG`로 언어를 조정할 수 있습니다.
 
 ## 동작 흐름
 1. 사용자가 게스트 이메일로 로그인하여 세션 쿠키를 발급받습니다.
@@ -65,3 +66,4 @@ HF_SPACE_ID=TheStageAI/Elastic-musicgen-large
 5. Next.js 등의 현대적인 프런트엔드로 UI/UX 개선 및 실시간 진행률 스트리밍 적용
 
 즐거운 음악 생성 실험에 도움이 되길 바랍니다!
+

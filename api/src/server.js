@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { generateSpaceAudioTrack } = require('./audio/spaces');
+const { translatePromptToEnglishIfNeeded } = require('./translate/google');
 
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
@@ -189,45 +190,61 @@ function expandPrompt(raw) {
 }
 
 function promptTitleFromTrack(track) {
-  if (!track) return '트랙';
+  if (!track) return '?�랙';
   const raw = (track.prompt_raw || track.prompt_expanded || '').trim();
   if (raw) return raw;
   const idPart = (track.id || '').toString().slice(0, 8) || 'track';
-  return `트랙 #${idPart}`;
+  return `?�랙 #${idPart}`;
 }
 
 // Create generation job
-app.post('/v1/generations', authRequired, (req, res) => {
-  const { prompt, duration, samplerate = 44100, seed = null, quality = 'draft' } = req.body || {};
-  if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'invalid_prompt' });
-  if (violatesPolicy(prompt)) return res.status(400).json({ error: 'blocked_prompt' });
-  if (typeof duration === 'number' && duration > MAX_DURATION_SECONDS) return res.status(400).json({ error: 'duration_too_long', max: MAX_DURATION_SECONDS });
+app.post('/v1/generations', authRequired, async (req, res) => {
+  try {
+    const { prompt, duration, samplerate = 44100, seed = null, quality = 'draft' } = req.body || {};
+    if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'invalid_prompt' });
+    if (violatesPolicy(prompt)) return res.status(400).json({ error: 'blocked_prompt' });
+    if (typeof duration === 'number' && duration > MAX_DURATION_SECONDS) {
+      return res.status(400).json({ error: 'duration_too_long', max: MAX_DURATION_SECONDS });
+    }
 
-  const jobId = uuidv4();
-  const sanitizedDuration = typeof duration === 'number' ? duration : Number(duration);
-  const requestedDuration = duration == null || Number.isNaN(sanitizedDuration)
-    ? DEFAULT_DURATION_SECONDS
-    : Math.max(1, sanitizedDuration);
-  const clampedDuration = Math.min(requestedDuration, MAX_DURATION_SECONDS);
-  const params = { duration: clampedDuration, samplerate: Number(samplerate), seed, quality };
-  const job = {
-    id: jobId,
-    userId: req.user.userId,
-    prompt_raw: prompt,
-    prompt_expanded: expandPrompt(prompt),
-    params,
-    status: 'queued',
-    progress: 0,
-    created_at: new Date().toISOString(),
-    finished_at: null,
-    error: null,
-    error_code: null,
-    audio_url: null,
-  };
-  db.jobs.set(jobId, job);
-  queue.push(job);
-  processQueue();
-  res.json({ job_id: jobId, status: job.status });
+    const jobId = uuidv4();
+    const sanitizedDuration = typeof duration === 'number' ? duration : Number(duration);
+    const requestedDuration = duration == null || Number.isNaN(sanitizedDuration)
+      ? DEFAULT_DURATION_SECONDS
+      : Math.max(1, sanitizedDuration);
+    const clampedDuration = Math.min(requestedDuration, MAX_DURATION_SECONDS);
+    const params = { duration: clampedDuration, samplerate: Number(samplerate), seed, quality };
+
+    let modelPrompt = prompt;
+    try {
+      modelPrompt = await translatePromptToEnglishIfNeeded(prompt);
+    } catch (e) {
+      console.error('Prompt translation failed; using original prompt.', e);
+      modelPrompt = prompt;
+    }
+
+    const job = {
+      id: jobId,
+      userId: req.user.userId,
+      prompt_raw: prompt,
+      prompt_expanded: expandPrompt(modelPrompt),
+      params,
+      status: 'queued',
+      progress: 0,
+      created_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      error_code: null,
+      audio_url: null,
+    };
+    db.jobs.set(jobId, job);
+    queue.push(job);
+    processQueue();
+    res.json({ job_id: jobId, status: job.status });
+  } catch (err) {
+    console.error('Failed to create generation job', err);
+    res.status(500).json({ error: 'internal_error' });
+  }
 });
 
 // Get job status
@@ -359,3 +376,6 @@ app.get('/', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`TextTune API listening on http://localhost:${PORT}`);
 });
+
+
+

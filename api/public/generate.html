@@ -67,10 +67,6 @@
           <label>프롬프트</label>
           <textarea id="prompt" placeholder="여기에 프롬프트를 입력하세요"></textarea>
           <div class="count"><span id="cnt">0</span>/200</div>
-          <div class="actions">
-            <button class="btn" id="randomBtn">랜덤 프롬프트</button>
-            <button class="btn" id="aiBtn">AI 프롬프트 생성기</button>
-          </div>
           <button class="primary" id="genBtn">생성</button>
 
           <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
@@ -110,21 +106,6 @@
         cnt.textContent = v.length;
       });
 
-      // 샘플 프롬프트 주입
-      const samples = [
-        '밝은 80년대 신스팝, 아날로그 신스 아르페지오, 120BPM, 인스트루멘털',
-        '어두운 시네마틱 앰비언스, 저음 드론과 패드, 점층적 빌드업, 인스트루멘털',
-        '로파이 힙합, 따뜻한 비닐 노이즈, 재즈 코드, 스윙 드럼, 인스트루멘털'
-      ];
-      document.getElementById('randomBtn')?.addEventListener('click', () => {
-        const s = samples[Math.floor(Math.random()*samples.length)];
-        ta.value = s; cnt.textContent = s.length;
-      });
-      document.getElementById('aiBtn')?.addEventListener('click', () => {
-        const s = '에너지 넘치는 EDM, 강한 킥과 베이스, 사이드체인, 128BPM, 인스트루멘털';
-        ta.value = s; cnt.textContent = s.length;
-      });
-
       // 생성 로직 (API 호출/폴링)
       const statusEl = document.getElementById('status');
       const barEl = document.getElementById('bar');
@@ -153,7 +134,10 @@
               clearInterval(id);
               statusEl.textContent = '완료';
               const link = `/track.html?id=${encodeURIComponent(s.track_id)}`;
-              resultEl.innerHTML = `<a class="btn" href="${link}">감상하기</a>`;
+              resultEl.innerHTML = `<button class="primary listen-btn" type="button">감상하기</button>`;
+              resultEl.querySelector('.listen-btn')?.addEventListener('click', () => {
+                window.location.href = link;
+              });
             } else if (s.status === 'failed') {
               clearInterval(id);
               statusEl.textContent = '실패: ' + (s.error || 'unknown');

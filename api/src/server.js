@@ -9,15 +9,14 @@ const { v4: uuidv4 } = require('uuid');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const { synthesizeWav } = require('./audio/synth');
 const { generateSpaceAudioTrack } = require('./audio/spaces');
 
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || `http://localhost:${PORT}`;
-const MAX_DURATION_SECONDS = Number(process.env.MAX_DURATION_SECONDS || 12);
+const MAX_DURATION_SECONDS = Number(process.env.MAX_DURATION_SECONDS || 30);
+const DEFAULT_DURATION_SECONDS = Number(process.env.DEFAULT_DURATION_SECONDS || 30);
 const HF_SPACE_ID = (process.env.HF_SPACE_ID || '').trim();
-const HF_ENABLED = Boolean(HF_SPACE_ID);
 
 const app = express();
 
@@ -126,18 +125,14 @@ async function runJob(job) {
     broadcastProgress(job);
   }, 500);
 
-  try {
-    if (!HF_ENABLED) {
-      const renderMs = Math.max(1500, (job.params.duration || 10) * 300);
-      await new Promise(r => setTimeout(r, renderMs));
-    }
+    try {
+      if (!HF_SPACE_ID) {
+        throw new Error('HF_SPACE_ID is not configured.');
+      }
 
-    const tracksDir = path.join(__dirname, '..', 'storage', job.userId);
-    const trackId = uuidv4();
-    let renderInfo;
-
-    if (HF_SPACE_ID) {
-      renderInfo = await generateSpaceAudioTrack({
+      const tracksDir = path.join(__dirname, '..', 'storage', job.userId);
+      const trackId = uuidv4();
+      const renderInfo = await generateSpaceAudioTrack({
         prompt: job.prompt_expanded,
         durationSec: job.params.duration ?? undefined,
         samplerate: job.params.samplerate,
@@ -145,21 +140,6 @@ async function runJob(job) {
         outDir: tracksDir,
         filenamePrefix: trackId,
       });
-    } else {
-      const wavPath = path.join(tracksDir, `${trackId}.wav`);
-      synthesizeWav({
-        prompt: job.prompt_expanded,
-        seed: job.params.seed || 0,
-        durationSec: job.params.duration || 12,
-        sampleRate: job.params.samplerate,
-        outPath: wavPath,
-      });
-      renderInfo = {
-        filePath: wavPath,
-        format: 'wav',
-        contentType: 'audio/wav',
-      };
-    }
 
     const track = {
       id: trackId,
@@ -224,7 +204,12 @@ app.post('/v1/generations', authRequired, (req, res) => {
   if (typeof duration === 'number' && duration > MAX_DURATION_SECONDS) return res.status(400).json({ error: 'duration_too_long', max: MAX_DURATION_SECONDS });
 
   const jobId = uuidv4();
-  const params = { duration: duration == null ? null : Math.max(1, Number(duration)), samplerate: Number(samplerate), seed, quality };
+  const sanitizedDuration = typeof duration === 'number' ? duration : Number(duration);
+  const requestedDuration = duration == null || Number.isNaN(sanitizedDuration)
+    ? DEFAULT_DURATION_SECONDS
+    : Math.max(1, sanitizedDuration);
+  const clampedDuration = Math.min(requestedDuration, MAX_DURATION_SECONDS);
+  const params = { duration: clampedDuration, samplerate: Number(samplerate), seed, quality };
   const job = {
     id: jobId,
     userId: req.user.userId,

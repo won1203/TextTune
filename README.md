@@ -1,86 +1,67 @@
-# TextTune
+﻿# TextTune
 
-TexTune은 **텍스트 프롬프트 기반 음악 생성**을 빠르게 검증할 수 있는 풀스택 샘플 프로젝트입니다. 간단한 이메일(게스트) 로그인 → 프롬프트 입력 → 비동기 생성 → 감상/다운로드 → 보관함 저장까지 한 번에 체험할 수 있습니다. 백엔드는 Node.js/Express, 프런트는 순수 HTML/JS 구성이며, 음악 생성은 Hugging Face Space(`CryptoThaler/melody`)를 호출하는 방식으로 이루어집니다.
+TextTune은 텍스트 프롬프트 기반으로 음악을 생성하는 풀스택 실험 프로젝트입니다. Express API와 순수 HTML/JS 프런트엔드로 구성되어 있으며, Hugging Face Space(`TheStageAI/Elastic-musicgen-large` 등)와 직접 통신해 음원을 받아옵니다.
 
 ## 구성
-
-- `api/src/server.js` – Express API (인증, 작업 큐, Space 호출, 보관함/스트리밍)
-- `api/src/audio/spaces.js` – Gradio Space 호출/파일 저장 어댑터
-- `api/src/audio/synth.js` – Space를 쓰지 못할 때 사용하는 간단한 WAV Mock 렌더러
-- `api/public/*.html` – 최소한의 UI (랜딩·생성·보관함·감상 페이지)
-- `api/public/js/app.js` – 공통 프런트엔드 스크립트 (세션 유지, API 호출)
-- `api/storage/` – 생성된 오디오 파일이 저장되는 로컬 디렉터리
+- `api/src/server.js` : 인증/작업 큐/라이브러리 스트리밍을 담당하는 Express 서버
+- `api/src/audio/spaces.js` : Gradio Space 호출과 응답 오디오 파일 처리 어댑터
+- `api/public/*.html` : 프롬프트 입력·진행률 확인·라이브러리 뷰 등 최소한의 정적 UI
+- `api/public/js/app.js` : 로그인/세션 유지, API 호출 헬퍼, 진행률 폴링 로직
+- `api/storage/` : 생성된 음원을 임시로 저장하는 로컬 디렉터리
 
 ## 실행 방법
-
 ```bash
 cd api
 npm install
 npm start
 ```
+서버는 기본적으로 `http://localhost:4000` 에서 동작하며, 실행 중에는 터미널에서 `Ctrl + C`로 중지합니다.
 
-- 서버는 기본적으로 `http://localhost:4000`에서 동작합니다.
-- 종료 시에는 실행 중인 터미널에서 `Ctrl + C`를 누르세요.
-
-## 환경 변수 (`api/.env`)
-
+## 환경 변수(`api/.env`)
 ```env
 PORT=4000
 JWT_SECRET=dev-secret-change-me
 ALLOW_ORIGIN=http://localhost:4000
-MAX_DURATION_SECONDS=12
-
-# Hugging Face Space 설정
-HF_API_TOKEN=hf_xxx                  # 선택: Space 인증/ZeroGPU 확장용 토큰
-HF_SPACE_ID=CryptoThaler/melody      # 필수: 사용할 Gradio Space ID
+MAX_DURATION_SECONDS=30
+DEFAULT_DURATION_SECONDS=30
+HF_API_TOKEN=hf_xxx
+HF_SPACE_ID=TheStageAI/Elastic-musicgen-large
 ```
+- `MAX_DURATION_SECONDS` : 요청 가능한 최대 음원 길이(기본 30초)
+- `DEFAULT_DURATION_SECONDS` : 길이를 전달하지 않았을 때 서버가 사용하는 기본 길이
+- `HF_SPACE_ID` : 호출할 Hugging Face Space ID. 비공개/로그인 필요 Space면 권한을 확인하세요.
+- `HF_API_TOKEN` : Space 접근 또는 ZeroGPU 할당량 확장을 위한 개인 토큰(필요 시 설정)
 
-- `HF_SPACE_ID`를 지정하면 해당 Space를 직접 호출합니다. Space UI가 로그인 안내만 제공하는 경우에는 API 호출이 막혀 있으니 먼저 확인하세요.
-- `HF_API_TOKEN`은 Space가 로그인/ZeroGPU 증설을 요구할 때 사용합니다. 토큰이 없어도 공개 Space라면 기본적인 호출은 가능하지만, 무료 ZeroGPU 한도(무료 4분/일, PRO 25분/일)에 막힐 수 있습니다.
-- 두 값이 모두 비어 있으면 Space 대신 내부 mock 렌더러(`synthesizeWav`)가 실행됩니다.
-
-## 동작 플로우
-
-1. 사용자가 이메일(자동 게스트)로 로그인합니다.
-2. `generate.html`에서 프롬프트를 입력하고 `/v1/generations` API를 호출합니다.
-3. 서버는 작업 큐에 Job을 적재하고, 별도 백그라운드 루틴에서 Hugging Face Space를 호출해 오디오를 생성/저장합니다.
-4. 폴링(`GET /v1/generations/:id`)으로 진행률을 확인하다가 완료되면 감상 페이지로 이동합니다.
-5. 생성된 트랙은 `/library.html`에서 날짜별로 묶어 확인할 수 있고, 스트리밍·다운로드·삭제 기능을 제공합니다.
+## 동작 흐름
+1. 사용자가 게스트 이메일로 로그인하여 세션 쿠키를 발급받습니다.
+2. `generate.html`에서 프롬프트를 입력하면 `/v1/generations`로 Job이 생성됩니다.
+3. 백엔드 큐가 Hugging Face Space에 요청을 전달하고, 반환된 오디오를 로컬 파일로 저장합니다.
+4. UI는 `/v1/generations/:id`를 폴링해 진행률을 확인하며, 완료 시 `track.html`로 이동합니다.
+5. 저장된 트랙은 `/v1/library`, `/v1/stream/:id`, `/v1/download/:id` 로 조회·재생·다운로드할 수 있습니다.
 
 ## API 요약
-
-- `POST /v1/auth/login` – 간단한 이메일 기반 로그인(게스트 자동 발급)
-- `GET /v1/me` – 현재 세션 정보
-- `POST /v1/generations` – 음악 생성 요청 `{ prompt, duration?, samplerate?, seed?, quality? }`
-- `GET /v1/generations/:id` – Job 상태 `queued|running|succeeded|failed` 및 결과
-- `GET /v1/library` / `DELETE /v1/library/:id` – 보관함 조회/삭제
-- `GET /v1/tracks/:id` – 단일 트랙 메타데이터
-- `GET /v1/stream/:id` – Range 지원 스트리밍
-- `GET /v1/download/:id` – 오디오 파일 다운로드
+- `POST /v1/auth/login` : 게스트 이메일 기반 로그인
+- `GET /v1/me` : 현재 세션 정보
+- `POST /v1/generations` : `{ prompt, samplerate?, seed?, quality? }`로 생성 Job 등록(기본 길이 30초)
+- `GET /v1/generations/:id` : Job 상태/진행률/결과 트랙 참조
+- `GET /v1/library` & `DELETE /v1/library/:id` : 사용자 라이브러리 조회/삭제
+- `GET /v1/tracks/:id`, `/v1/stream/:id`, `/v1/download/:id` : 단일 트랙 메타/스트리밍/다운로드
 
 ## Hugging Face Space 연동
+- `@gradio/client`를 사용해 Space 메타 정보를 불러오고, 프롬프트·길이·시드 입력 컴포넌트에 값을 매핑합니다.
+- Space가 `data:` URL이나 `file=...` 경로로 오디오를 반환하면 서버가 즉시 다운로드해 로컬 파일로 저장합니다.
+- ZeroGPU 한도 초과나 로그인 요구로 실패하면 Space 쪽 에러 메시지를 Job에 그대로 전달합니다.
 
-- 서버는 `@gradio/client`로 Space 메타데이터를 읽어, “프롬프트/Duration/Seed/샘플레이트” 등의 입력 컴포넌트를 찾아 값을 자동 주입합니다.
-- Space가 오디오를 `data:` URL 혹은 `file=...` 경로로 반환하면 API가 다시 다운로드해 로컬에 저장하고, 스트리밍·다운로드 API와 연결합니다.
-- ZeroGPU 무료 한도를 넘으면 Space가 오류 메시지를 보내며, 이때는 `SpaceQuotaError`로 잡혀 `/v1/generations/:id` 응답에 친절한 에러 문구와 코드(`space_quota`)가 포함됩니다.
-- 더 안정적인 사용을 원하면 PRO 구독 또는 자체 하드웨어가 할당된 Space를 운영해야 합니다.
-
-## 로컬 Mock 렌더러
-
-Space 설정이 비어 있거나 호출에 실패하면 `synthesizeWav`가 단순한 사운드를 생성해 개발 편의성을 높여 줍니다. 실제 서비스 배포 시에는 반드시 유효한 Space를 지정하세요.
-
-## 트러블슈팅
-
-- `api is not defined` – `js/app.js` 로딩 실패입니다. HTML에서 `<script src="js/app.js"></script>` 경로가 맞는지 확인 후 강력 새로고침(Ctrl+F5)하세요.
-- Hugging Face 401/Quota 오류 – `HF_API_TOKEN` 누락, 토큰 권한 부족, 혹은 ZeroGPU 일일 한도를 초과했습니다. 토큰을 갱신하거나 PRO 구독을 고려하세요.
-- Job이 `failed` – Space 응답을 콘솔에서 확인하세요. 프롬프트 길이 제한, Space 내부 오류, 네트워크 문제 등이 원인일 수 있습니다.
+## 문제 해결 팁
+- `HF_SPACE_ID` 또는 토큰이 잘못되면 `Could not resolve app config` 오류가 발생합니다. Space URL에서 `...hf.space/config`가 열리는지 먼저 확인하세요.
+- Space가 WebSocket 프로토콜만 노출하는 경우 현재 클라이언트 버전으로는 동작하지 않으니 SSE를 지원하는 Space를 선택해 주세요.
+- Job이 `failed`이면 백엔드 로그에 남는 Space 응답을 확인하여 프롬프트 길이 제한, 토큰 만료 등을 점검합니다.
 
 ## 향후 개선 아이디어
+1. Postgres 등 영구 저장소 연동으로 사용자/Job/트랙 메타데이터를 보존
+2. S3·Cloudflare R2 같은 오브젝트 스토리지 업로드 및 서명 URL 제공
+3. OAuth/결제 연동으로 사용자별 Space 토큰 관리와 사용량 한도 부여
+4. 별도 워커 프로세스 도입으로 Space 호출을 분리하고 확장성 확보
+5. Next.js 등의 현대적인 프런트엔드로 UI/UX 개선 및 실시간 진행률 스트리밍 적용
 
-1. **Persistent Storage 도입** – Postgres/Prisma 등으로 `users/jobs/tracks` 데이터를 DB에 저장하고, 작업 이력을 유지합니다.
-2. **외부 스토리지 연동** – S3/R2 등의 오브젝트 스토리지에 오디오를 업로드하고 서명 URL을 제공합니다.
-3. **실제 인증/결제 연동** – 이메일/소셜 로그인 및 사용자별 Space 토큰 연결 기능을 제공합니다.
-4. **Space 프록시 워커** – 다수의 Space 호출을 큐/워커 구조(예: Redis)로 분리해 안정성을 높입니다.
-5. **프런트엔드 고도화** – Next.js, React 등의 프레임워크로 UI를 개선하고 SSE/WebSocket 기반 진행률 업데이트를 적용합니다.
-
-필요한 기능이나 통합 작업이 있다면 이 README를 참고해 빠르게 확장할 수 있습니다. 즐거운 음악 생성 실험 되세요!
+즐거운 음악 생성 실험에 도움이 되길 바랍니다!

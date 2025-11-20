@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const morgan = require('morgan');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
 const { v4: uuidv4 } = require('uuid');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -18,8 +20,50 @@ const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || `http://localhost:${PORT}`;
 const MAX_DURATION_SECONDS = Number(process.env.MAX_DURATION_SECONDS || 30);
 const DEFAULT_DURATION_SECONDS = Number(process.env.DEFAULT_DURATION_SECONDS || 30);
 const HF_SPACE_ID = (process.env.HF_SPACE_ID || '').trim();
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const GOOGLE_CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const GOOGLE_REDIRECT_URI = (process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/v1/auth/google/callback`).trim();
+const googleOAuthClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
+  ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+  : null;
 
 const app = express();
+
+const authStates = new Map(); // state -> { codeVerifier, next, createdAt }
+const STATE_TTL_MS = 10 * 60 * 1000;
+
+function randomBase64Url(bytes = 32) {
+  return crypto.randomBytes(bytes).toString('base64url');
+}
+
+function toCodeChallenge(verifier) {
+  return crypto.createHash('sha256').update(verifier).digest().toString('base64url');
+}
+
+function sanitizeNext(next) {
+  if (!next || typeof next !== 'string') return '/';
+  if (next.startsWith('/')) return next;
+  return '/';
+}
+
+function storeAuthState(state, data) {
+  authStates.set(state, { ...data, createdAt: Date.now() });
+}
+
+function consumeAuthState(state) {
+  const entry = authStates.get(state);
+  if (entry) authStates.delete(state);
+  if (!entry) return null;
+  if ((Date.now() - entry.createdAt) > STATE_TTL_MS) return null;
+  return entry;
+}
+
+function purgeAuthStates() {
+  const now = Date.now();
+  for (const [key, val] of authStates) {
+    if ((now - val.createdAt) > STATE_TTL_MS) authStates.delete(key);
+  }
+}
 
 app.use(morgan('dev'));
 app.use(express.json({ limit: '1mb' }));
@@ -49,6 +93,82 @@ function authRequired(req, res, next) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 }
+
+// Google OAuth (Authorization Code + PKCE)
+app.get('/v1/auth/google/start', (req, res) => {
+  if (!googleOAuthClient) return res.status(500).send('google_oauth_not_configured');
+  purgeAuthStates();
+  const state = randomBase64Url(16);
+  const codeVerifier = randomBase64Url(32);
+  const codeChallenge = toCodeChallenge(codeVerifier);
+  const next = sanitizeNext(req.query.next || '/generate.html');
+  storeAuthState(state, { codeVerifier, next });
+  const url = googleOAuthClient.generateAuthUrl({
+    access_type: 'online',
+    response_type: 'code',
+    scope: ['openid', 'email', 'profile'],
+    state,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    prompt: 'select_account',
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    include_granted_scopes: true,
+  });
+  res.redirect(url);
+});
+
+app.get('/v1/auth/google/callback', async (req, res) => {
+  if (!googleOAuthClient) return res.status(500).send('google_oauth_not_configured');
+  purgeAuthStates();
+  const { state, code, error } = req.query || {};
+  if (error) return res.status(400).send(`google_oauth_error: ${error}`);
+  if (!state || !code) return res.status(400).send('missing_state_or_code');
+
+  const saved = consumeAuthState(state);
+  if (!saved) return res.status(400).send('invalid_state');
+
+  try {
+    const tokenRes = await googleOAuthClient.getToken({
+      code,
+      codeVerifier: saved.codeVerifier,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+    });
+    const idToken = tokenRes.tokens?.id_token;
+    if (!idToken) throw new Error('missing_id_token');
+
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload() || {};
+    const sub = payload.sub;
+    const email = payload.email;
+    if (!sub || !email) throw new Error('missing_profile');
+
+    const userId = `google-${sub}`;
+    let user = db.users.get(userId);
+    if (!user) {
+      user = Array.from(db.users.values()).find(u => u.email === email) || {
+        id: userId,
+        createdAt: new Date().toISOString(),
+        plan: 'free',
+      };
+    }
+    user.email = email;
+    user.name = payload.name || user.name || '';
+    user.picture = payload.picture || user.picture || '';
+    user.auth_provider = 'google';
+
+    db.users.set(user.id, user);
+
+    const token = signToken({ userId: user.id, email: user.email });
+    res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
+    res.redirect(saved.next || '/');
+  } catch (e) {
+    console.error('Google OAuth callback failed', e);
+    res.status(500).send('login_failed');
+  }
+});
 
 // Very simple dev login (email only)
 app.post('/v1/auth/login', (req, res) => {

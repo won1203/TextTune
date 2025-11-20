@@ -1,9 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TexTune — 생성</title>
+    <title>TexTune | 트랙 생성</title>
     <!-- build: generate v2 -->
     <style>
       :root{
@@ -19,6 +19,7 @@
       .badge{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--grad1),var(--grad2));display:grid;place-items:center}
       .badge span{font-size:16px}
       nav a{color:var(--brand);margin-left:14px;text-decoration:none}
+      #authUser{color:var(--muted);font-size:12px;margin-left:6px}
       .panel{background:var(--panel);border:1px solid var(--stroke);border-radius:14px;padding:16px;margin-top:20px}
       .tabs{display:flex;gap:16px;border-bottom:1px solid var(--stroke);margin-bottom:12px}
       .tab{padding:10px 6px;margin-bottom:-1px;border-bottom:2px solid transparent;color:#b9b9d6;cursor:pointer}
@@ -47,6 +48,8 @@
         </div>
         <nav>
           <a class="nav-btn" href="library.html">보관함</a>
+          <a id="authAction" class="nav-btn" href="login.html">로그인</a>
+          <span id="authUser"></span>
         </nav>
       </div>
     </header>
@@ -54,18 +57,17 @@
     <main class="wrap">
       <section class="panel">
         <div class="tabs">
-          <div class="tab active">텍스트를 노래로</div>
+          <div class="tab active">텍스트 -> 음원</div>
         </div>
         <div class="panel-head">
           <div></div>
         </div>
         <div class="panel-body">
           <div class="row" style="justify-content:space-between;align-items:center">
-            <div style="font-weight:600;color:#d5d8ff">연주곡</div>
-            <div class="toggle" id="instToggle" aria-label="연주곡"></div>
+            <div style="font-weight:600;color:#d5d8ff">음원 생성</div>
           </div>
           <label>프롬프트</label>
-          <textarea id="prompt" placeholder="여기에 프롬프트를 입력하세요"></textarea>
+          <textarea id="prompt" placeholder="프롬프트를 입력해주세요"></textarea>
           <div class="count"><span id="cnt">0</span>/200</div>
           <button class="primary" id="genBtn">생성</button>
 
@@ -81,6 +83,7 @@
     <script src="js/app.js"></script>
     <script>
       (async () => {
+        await hydrateAuthControls();
         await ensureAuthed();
         try {
           const v = localStorage.getItem('texttune_pre_prompt');
@@ -93,11 +96,9 @@
         } catch {}
       })();
 
-      // 토글 애니메이션 (UI 전용)
       const t = document.getElementById('instToggle');
       t?.addEventListener('click', () => t.classList.toggle('on'));
 
-      // 글자수 카운트
       const ta = document.getElementById('prompt');
       const cnt = document.getElementById('cnt');
       ta?.addEventListener('input', () => {
@@ -106,14 +107,13 @@
         cnt.textContent = v.length;
       });
 
-      // 생성 로직 (API 호출/폴링)
       const statusEl = document.getElementById('status');
       const barEl = document.getElementById('bar');
       const resultEl = document.getElementById('result');
 
       document.getElementById('genBtn').addEventListener('click', async () => {
         resultEl.innerHTML = '';
-        statusEl.textContent = '큐에 등록 중...';
+        statusEl.textContent = '요청 등록 중...';
         barEl.style.width = '0%';
         const prompt = document.getElementById('prompt').value;
         try {
@@ -150,4 +150,4 @@
       }
     </script>
   </body>
-  </html>
+</html>

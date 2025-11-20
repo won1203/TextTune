@@ -1,10 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TexTune — AI 음악 만들기</title>
-    <!-- build: index v2 -->
+    <title>TexTune | AI 음악 생성 시작하기</title>
     <style>
       :root{
         --bg:#0f1222; --panel:#191c33; --panel2:#14172a; --stroke:#2a2f55; --text:#e8e8f0; --muted:#aab; --brand:#8ad;
@@ -19,6 +18,7 @@
       .badge{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--grad1),var(--grad2));display:grid;place-items:center}
       .badge span{font-size:16px}
       nav a{color:var(--brand);margin-left:14px;text-decoration:none}
+      #authUser{color:var(--muted);font-size:12px;margin-left:6px}
       .hero{padding:32px 0}
       .h1{font-size:44px;font-weight:800;margin:8px 0}
       .sub{color:var(--muted);font-size:16px;margin-bottom:16px}
@@ -34,22 +34,24 @@
         </div>
         <nav>
           <a href="library.html">보관함</a>
+          <a href="generate.html">생성하기</a>
+          <a id="authAction" href="login.html">로그인</a>
+          <span id="authUser"></span>
         </nav>
       </div>
     </header>
 
     <main class="wrap">
       <section class="hero">
-        <div class="h1">AI 음악 생성기</div>
-        <div class="sub">AI 음악 만들기로 손쉽게 음악을 만드세요. 트랙 작곡, AI 음악 생성, 저작권 무료 음악 제작을 쉽게 즐기세요.</div>
-        <a class="cta" href="generate.html">AI 음악 만들기 & AI 음악 생성기 무료로 시작하기 &gt;&gt;</a>
+        <div class="h1">AI 음악 생성</div>
+        <div class="sub">문장을 입력하면 맞춤형 트랙을 만드는 TexTune MVP입니다.</div>
+        <a class="cta" href="generate.html">AI 음악 만들기 &gt;&gt;</a>
       </section>
     </main>
 
     <script src="js/app.js"></script>
     <script>
-      // 랜딩은 입력 UI 없이 generate.html로 유도만 수행합니다.
-      // 캐시로 변경이 안 보일 경우 주소 끝에 ?v=2 를 붙여 새로고침하세요.
+      hydrateAuthControls();
     </script>
   </body>
   </html>

@@ -1,4 +1,4 @@
-async function api(path, { method = 'GET', body, headers = {} } = {}) {
+﻿async function api(path, { method = "GET", body, headers = {} } = {}) {
   const res = await fetch(path, {
     method,
     credentials: 'include',
@@ -11,32 +11,58 @@ async function api(path, { method = 'GET', body, headers = {} } = {}) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try { const j = await res.json(); msg += `: ${j.error || ''}`; } catch {}
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
   try { return await res.json(); } catch { return null; }
 }
 
-async function ensureAuthed() {
-  // 1) 기존 세션 확인
-  try {
-    const me = await api('/v1/me');
-    return me;
-  } catch {}
+async function getMe() {
+  return api('/v1/me');
+}
 
-  // 2) 로그인 화면 없이 게스트 세션 자동 발급
+function redirectToLogin(nextPath) {
+  const next = nextPath || `${location.pathname}${location.search}`;
+  window.location.href = `/login.html?next=${encodeURIComponent(next)}`;
+}
+
+async function ensureAuthed(options = {}) {
+  const next = options.next || `${location.pathname}${location.search}`;
   try {
-    const key = 'texttune_guest_email';
-    let email = localStorage.getItem(key);
-    if (!email) {
-      const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      email = `guest-${id}@guest.local`;
-      localStorage.setItem(key, email);
+    return await getMe();
+  } catch (e) {
+    if (e?.status === 401) {
+      redirectToLogin(next);
+      return null;
     }
-    await api('/v1/auth/login', { method: 'POST', body: { email } });
-    const me = await api('/v1/me');
+    throw e;
+  }
+}
+
+async function hydrateAuthControls() {
+  const actionEl = document.getElementById('authAction');
+  const userEl = document.getElementById('authUser');
+  try {
+    const me = await getMe();
+    if (actionEl) {
+      actionEl.textContent = '로그아웃';
+      actionEl.href = '#';
+      actionEl.onclick = async (ev) => {
+        ev.preventDefault();
+        try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
+        window.location.href = '/login.html';
+      };
+    }
+    if (userEl) userEl.textContent = me.email || '';
     return me;
   } catch (e) {
-    console.error('세션 생성 실패:', e);
+    if (actionEl) {
+      actionEl.textContent = '로그인';
+      actionEl.href = `/login.html?next=${encodeURIComponent(location.pathname + location.search)}`;
+      actionEl.onclick = null;
+    }
+    if (userEl) userEl.textContent = '';
     return null;
   }
 }

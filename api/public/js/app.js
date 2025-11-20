@@ -51,7 +51,10 @@ async function hydrateAuthControls() {
       actionEl.onclick = async (ev) => {
         ev.preventDefault();
         try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
-        window.location.href = '/login.html';
+        if (userEl) userEl.textContent = '';
+        actionEl.textContent = '로그인';
+        actionEl.href = `/login.html?next=${encodeURIComponent(location.pathname + location.search)}`;
+        actionEl.onclick = null;
       };
     }
     if (userEl) userEl.textContent = me.email || '';

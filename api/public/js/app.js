@@ -139,6 +139,13 @@ async function hydrateAuthControls() {
 // DOM 유틸
 function qs(sel) { return document.querySelector(sel); }
 function ce(tag, cls) { const el = document.createElement(tag); if (cls) el.className = cls; return el; }
+function formatTime(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n < 0) return '0:00';
+  const m = Math.floor(n / 60);
+  const s = Math.floor(n % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 // 프로필 메뉴/모달 스타일
 function ensureProfileStyles() {
@@ -319,3 +326,152 @@ function attachProfileInteractions(me, initials) {
     if (cancelBtn) cancelBtn.onclick = closeModal;
   };
 }
+
+// 글로벌 오디오 플레이어 (페이지 공통)
+(function setupGlobalPlayer() {
+  if (window.__globalPlayerReady) return;
+  window.__globalPlayerReady = true;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #globalPlayer{position:fixed;left:0;right:0;bottom:0;padding:12px 18px;background:rgba(10,12,22,0.94);border-top:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(10px);display:none;align-items:center;gap:14px;z-index:10000;}
+    #globalPlayer .icon{width:44px;height:44px;border-radius:14px;background:linear-gradient(140deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));display:grid;place-items:center;flex-shrink:0;}
+    #globalPlayer .icon svg{width:24px;height:24px;fill:#fff;}
+    #globalPlayer .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+    #globalPlayer .info .title{font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    #globalPlayer .info .meta{font-size:12px;color:var(--muted,#b6b9c9);}
+    #globalPlayer .player-body{flex:1;min-width:0;display:flex;align-items:center;gap:10px;}
+    #globalPlayer .play-btn{width:42px;height:42px;border-radius:14px;border:none;background:linear-gradient(140deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));color:#fff;display:grid;place-items:center;cursor:pointer;}
+    #globalPlayer .wave-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:10px;}
+    #globalPlayer .wave{position:relative;flex:1;height:26px;border-radius:8px;overflow:hidden;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.12) 0 2px, transparent 2px 4px);}
+    #globalPlayer .wave-progress{position:absolute;inset:0;width:0%;background:repeating-linear-gradient(90deg,#3f6bff 0 2px, transparent 2px 4px);mix-blend-mode:screen;}
+    #globalPlayer .time{font-size:12px;color:var(--muted,#b6b9c9);white-space:nowrap;}
+    #globalPlayer .actions{display:flex;align-items:center;gap:8px;}
+    #globalPlayer .actions a, #globalPlayer .actions button{border:none;border-radius:10px;padding:8px 10px;font-weight:700;cursor:pointer;}
+    #globalPlayer .actions a{background:rgba(255,255,255,0.08);color:var(--text,#e8e8f0);text-decoration:none;}
+    #globalPlayer .actions button{background:rgba(255,255,255,0.06);color:var(--text,#e8e8f0);}
+    #globalPlayer audio{display:none;}
+    @media(max-width:720px){#globalPlayer{flex-direction:column;align-items:flex-start;}#globalPlayer .player-body{width:100%;flex-direction:column;align-items:flex-start;}#globalPlayer .wave-wrap{width:100%;}#globalPlayer .actions{width:100%;}}
+  `;
+  document.head.appendChild(style);
+
+  const bar = document.createElement('div');
+  bar.id = 'globalPlayer';
+  bar.setAttribute('aria-live','polite');
+  bar.innerHTML = `
+    <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.5 3.5v11.4a3.6 3.6 0 1 1-1.5-2.9V7.7l-6 1.5v7.7a3.6 3.6 0 1 1-1.5-2.9V5l9-2.2z"/></svg></div>
+    <div class="info">
+      <div class="title" id="gpTitle">재생할 트랙</div>
+      <div class="meta" id="gpMeta"></div>
+    </div>
+    <div class="player-body">
+      <button class="play-btn" id="gpPlay" type="button">▶</button>
+      <div class="wave-wrap">
+        <span class="time" id="gpTime">0:00</span>
+        <div class="wave">
+          <div class="wave-progress" id="gpWave"></div>
+        </div>
+        <span class="time" id="gpDuration">0:00</span>
+      </div>
+    </div>
+    <audio id="gpAudio"></audio>
+    <div class="actions">
+      <a id="gpDownload" href="#" download>다운로드</a>
+      <button id="gpClose" type="button">닫기</button>
+    </div>
+  `;
+  document.body.appendChild(bar);
+
+  const audio = bar.querySelector('#gpAudio');
+  const title = bar.querySelector('#gpTitle');
+  const meta = bar.querySelector('#gpMeta');
+  const dl = bar.querySelector('#gpDownload');
+  const closeBtn = bar.querySelector('#gpClose');
+  const playBtn = bar.querySelector('#gpPlay');
+  const waveFill = bar.querySelector('#gpWave');
+  const timeNow = bar.querySelector('#gpTime');
+  const timeTotal = bar.querySelector('#gpDuration');
+  const STORAGE_KEY = 'texttune_global_player';
+
+  function saveState(extra = {}) {
+    if (!audio) return;
+    const state = {
+      src: audio.src || '',
+      title: title?.textContent || '',
+      meta: meta?.textContent || '',
+      download: dl?.getAttribute('href') || '',
+      currentTime: audio.currentTime || 0,
+      ...extra,
+    };
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  }
+
+  function setTrack(track, autoplay = true) {
+    if (!audio || !title || !meta || !dl) return;
+    title.textContent = track.title || track.prompt_title || track.prompt_raw || '재생할 트랙';
+    meta.textContent = `${track.format || '?'} · ${track.samplerate || '?'}Hz · ${track.duration ? `${Math.round(track.duration)}s` : '?:??'}`;
+    audio.src = track.audio_url;
+    dl.href = track.download_url || track.audio_url || '#';
+    bar.style.display = 'flex';
+    saveState({ src: audio.src, title: title.textContent, meta: meta.textContent, download: dl.href, currentTime: 0 });
+    if (waveFill) waveFill.style.width = '0%';
+    if (timeNow) timeNow.textContent = '0:00';
+    if (timeTotal) timeTotal.textContent = formatTime(track.duration || 0);
+    audio.load();
+    if (autoplay) audio.play().catch(() => {});
+  }
+
+  function restore() {
+    const st = loadState();
+    if (!st || !audio) return;
+    if (st.src) {
+      title.textContent = st.title || '재생할 트랙';
+      meta.textContent = st.meta || '';
+      dl.href = st.download || st.src;
+      audio.src = st.src;
+      bar.style.display = 'flex';
+      audio.currentTime = st.currentTime || 0;
+    }
+  }
+
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      audio.pause();
+      bar.style.display = 'none';
+      saveState({ currentTime: audio.currentTime || 0 });
+    };
+  }
+  if (audio) {
+    const updateProgress = () => {
+      if (waveFill) {
+        const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+        waveFill.style.width = `${pct}%`;
+      }
+      if (timeNow) timeNow.textContent = formatTime(audio.currentTime || 0);
+      if (timeTotal && audio.duration) timeTotal.textContent = formatTime(audio.duration);
+      saveState({ currentTime: audio.currentTime || 0 });
+    };
+    audio.addEventListener('timeupdate', updateProgress);
+    audio.addEventListener('loadedmetadata', updateProgress);
+    audio.addEventListener('play', () => { if (playBtn) playBtn.textContent = '⏸'; });
+    audio.addEventListener('pause', () => { if (playBtn) playBtn.textContent = '▶'; });
+  }
+  if (playBtn && audio) {
+    playBtn.onclick = () => {
+      if (audio.paused) audio.play().catch(() => {});
+      else audio.pause();
+    };
+  }
+
+  restore();
+
+  window.setGlobalPlayerTrack = setTrack;
+})();

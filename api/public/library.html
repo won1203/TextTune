@@ -35,7 +35,6 @@
       .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:12px;background:var(--pill);color:var(--pill-text);font-weight:700;font-size:12px;}
       .meta{font-size:13px;color:var(--muted);}
       .lib-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
-      .mini-player{width:180px;height:32px;border-radius:10px;background:var(--panel2);}
       .btn{border:none;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:750;font-size:13px;}
       .btn-primary{background:linear-gradient(120deg,var(--grad1),var(--grad2));color:#fff;}
       .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);}
@@ -61,10 +60,22 @@
       </aside>
       <main class="main">
         <div class="page-head">
-          <h2>내 트랙 보관함</h2>
+          <h2>내 생성 트랙 보관함</h2>
         </div>
         <div id="library"></div>
       </main>
+    </div>
+    <div id="globalPlayer" aria-live="polite">
+      <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.5 3.5v11.4a3.6 3.6 0 1 1-1.5-2.9V7.7l-6 1.5v7.7a3.6 3.6 0 1 1-1.5-2.9V5l9-2.2z"/></svg></div>
+      <div class="info">
+        <div class="title" id="gpTitle">재생할 트랙</div>
+        <div class="meta" id="gpMeta"></div>
+      </div>
+      <audio id="gpAudio" controls></audio>
+      <div class="actions">
+        <a id="gpDownload" href="#" download>다운로드</a>
+        <button id="gpClose" type="button">닫기</button>
+      </div>
     </div>
 
     <script src="js/app.js"></script>
@@ -143,7 +154,7 @@
               </div>
             </div>
             <div class="lib-right">
-              <audio class="mini-player" controls src="${t.audio_url}"></audio>
+              <button class="btn btn-ghost" data-play="${t.id}">재생</button>
               <a class="btn btn-ghost" href="${t.download_url}">다운로드</a>
               <button class="btn btn-danger" data-id="${t.id}">삭제</button>
             </div>
@@ -154,9 +165,56 @@
             await fetch(`/v1/library/${id}`, { method: 'DELETE', credentials: 'include' });
             await load();
           });
+          const playBtn = row.querySelector('button[data-play]');
+          const iconEl = row.querySelector('.lib-icon');
+          const triggerPlay = () => {
+            if (window.setGlobalPlayerTrack) {
+              window.setGlobalPlayerTrack({
+                id: t.id,
+                title: t.prompt_title || t.prompt_raw || '트랙',
+                audio_url: t.audio_url,
+                download_url: t.download_url,
+                format: t.format,
+                samplerate: t.samplerate,
+                duration: t.duration,
+                created_at: t.created_at,
+                prompt_raw: t.prompt_raw,
+                prompt_expanded: t.prompt_expanded,
+              });
+            }
+          };
+          if (playBtn) playBtn.addEventListener('click', (ev) => { ev.preventDefault(); triggerPlay(); });
+          if (iconEl) iconEl.addEventListener('click', (ev) => { ev.preventDefault(); triggerPlay(); });
           container.appendChild(row);
         });
       }
+
+      function openGlobalPlayer(track) {
+        const gp = document.getElementById('globalPlayer');
+        const audio = document.getElementById('gpAudio');
+        const title = document.getElementById('gpTitle');
+        const meta = document.getElementById('gpMeta');
+        const dl = document.getElementById('gpDownload');
+        if (!gp || !audio || !title || !meta || !dl) return;
+        title.textContent = track.prompt_title || track.prompt_raw || '재생할 트랙';
+        meta.textContent = `${track.format || '?'} · ${track.samplerate || '?'}Hz · ${formatDuration(track.duration) || '?:??'} · ${dateLabel(new Date(track.created_at))}`;
+        audio.src = track.audio_url;
+        dl.href = track.download_url;
+        gp.style.display = 'flex';
+        audio.play().catch(() => {});
+      }
+
+      (function initGlobalPlayerControls(){
+        const gp = document.getElementById('globalPlayer');
+        const audio = document.getElementById('gpAudio');
+        const closeBtn = document.getElementById('gpClose');
+        if (closeBtn && audio && gp) {
+          closeBtn.onclick = () => {
+            audio.pause();
+            gp.style.display = 'none';
+          };
+        }
+      })();
     </script>
   </body>
 </html>

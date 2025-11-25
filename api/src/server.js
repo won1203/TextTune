@@ -8,7 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const { v4: uuidv4 } = require('uuid');
-const { initDb, usersRepo, jobsRepo, tracksRepo } = require('./db');
+const { initDb, usersRepo, jobsRepo, tracksRepo, playlistsRepo } = require('./db');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -499,6 +499,54 @@ app.get('/v1/download/:trackId', authRequired, (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="texttune-${t.id}.${ext}"`);
   res.setHeader('Content-Type', mimeType);
   fs.createReadStream(t.storage_key_original).pipe(res);
+});
+
+// Playlists
+app.post('/v1/playlists', authRequired, (req, res) => {
+  const { title } = req.body || {};
+  const t = (title || '').trim();
+  if (!t) return res.status(400).json({ error: 'invalid_title' });
+  const pl = playlistsRepo.createPlaylist(req.user.userId, t);
+  res.json(pl);
+});
+
+app.get('/v1/playlists', authRequired, (req, res) => {
+  const list = playlistsRepo.listPlaylists(req.user.userId);
+  res.json({ items: list });
+});
+
+app.get('/v1/playlists/:playlistId', authRequired, (req, res) => {
+  const pl = playlistsRepo.getPlaylistWithTracks(req.user.userId, req.params.playlistId);
+  if (!pl) return res.status(404).json({ error: 'not_found' });
+  const tracks = (pl.tracks || []).map(t => ({
+    ...t,
+    prompt_title: promptTitleFromTrack(t),
+    audio_url: `/v1/stream/${t.id}`,
+    download_url: `/v1/download/${t.id}`,
+  }));
+  res.json({ ...pl, tracks });
+});
+
+app.post('/v1/playlists/:playlistId/tracks', authRequired, (req, res) => {
+  const { track_id } = req.body || {};
+  if (!track_id) return res.status(400).json({ error: 'invalid_track' });
+  const track = tracksRepo.findByIdForUser(track_id, req.user.userId);
+  if (!track) return res.status(404).json({ error: 'track_not_found' });
+  const added = playlistsRepo.addTrack(req.user.userId, req.params.playlistId, track);
+  if (!added) return res.status(404).json({ error: 'playlist_not_found' });
+  res.json({ ok: true });
+});
+
+app.delete('/v1/playlists/:playlistId/tracks/:trackId', authRequired, (req, res) => {
+  const removed = playlistsRepo.removeTrack(req.user.userId, req.params.playlistId, req.params.trackId);
+  if (removed == null) return res.status(404).json({ error: 'playlist_not_found' });
+  res.json({ ok: true });
+});
+
+app.delete('/v1/playlists/:playlistId', authRequired, (req, res) => {
+  const ok = playlistsRepo.deletePlaylist(req.user.userId, req.params.playlistId);
+  if (!ok) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true });
 });
 
 // Static pages (very basic MVP UI)

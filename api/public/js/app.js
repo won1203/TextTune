@@ -99,17 +99,14 @@ async function hydrateAuthControls() {
     const me = await getMe();
     const displayName = me.name || (me.email ? me.email.split('@')[0] : '');
     const initials = (displayName || me.email || '?').trim().slice(0, 1).toUpperCase();
+    ensurePlaylistNav();
 
     if (actionEl) {
       actionEl.textContent = '로그아웃';
       actionEl.href = '#';
-      actionEl.onclick = async (ev) => {
+      actionEl.onclick = (ev) => {
         ev.preventDefault();
-        try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
-        if (userEl) userEl.innerHTML = '';
-        actionEl.textContent = '로그인';
-        actionEl.href = '#';
-        actionEl.onclick = (e2) => { e2.preventDefault(); openLoginModal(); };
+        showLogoutModal();
       };
     }
     if (userEl) {
@@ -126,6 +123,7 @@ async function hydrateAuthControls() {
     }
     return me;
   } catch (e) {
+    ensurePlaylistNav();
     if (actionEl) {
       actionEl.textContent = '로그인';
       actionEl.href = '#';
@@ -147,6 +145,147 @@ function formatTime(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function ensurePlaylistNav() {
+  const nav = document.querySelector('.side-nav');
+  if (!nav) return;
+  const playLink = nav.querySelector('a[href="playlist.html"]');
+  const logoutLink = nav.querySelector('#authAction');
+  if (!playLink) {
+    const link = document.createElement('a');
+    link.href = 'playlist.html';
+    link.textContent = '플레이리스트';
+    if (logoutLink) nav.insertBefore(link, logoutLink);
+    else nav.appendChild(link);
+  } else if (logoutLink && playLink.nextSibling !== logoutLink) {
+    nav.insertBefore(playLink, logoutLink);
+  }
+}
+
+// 플레이리스트 API
+async function fetchPlaylists() {
+  const res = await api('/v1/playlists');
+  return res?.items || [];
+}
+async function createPlaylistApi(title) {
+  return api('/v1/playlists', { method: 'POST', body: { title } });
+}
+async function addTrackToPlaylistApi(trackId, playlistId) {
+  return api(`/v1/playlists/${encodeURIComponent(playlistId)}/tracks`, { method: 'POST', body: { track_id: trackId } });
+}
+async function fetchPlaylistDetail(playlistId) {
+  return api(`/v1/playlists/${encodeURIComponent(playlistId)}`);
+}
+
+// 플레이리스트 모달
+function ensurePlaylistModals() {
+  if (document.getElementById('playlistModalStyles')) return;
+  const style = document.createElement('style');
+  style.id = 'playlistModalStyles';
+  style.textContent = `
+    #playlistOverlay{position:fixed;inset:0;background:rgba(5,5,10,0.6);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:11000;}
+    #playlistModal{background:rgba(20,22,35,0.96);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:18px 18px 14px;width:320px;color:#e8e8f0;box-shadow:0 20px 60px rgba(0,0,0,0.55);}
+    #playlistModal h4{margin:0 0 12px;font-size:18px;font-weight:800;}
+    #playlistModal label{display:block;font-size:13px;margin-bottom:6px;color:#b6b9c9;}
+    #playlistModal input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;}
+    #playlistModal .actions{display:flex;gap:8px;margin-top:12px;}
+    #playlistModal .actions button{flex:1;border:none;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;}
+    #playlistModal .primary{background:linear-gradient(120deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));color:#fff;}
+    #playlistModal .ghost{background:rgba(255,255,255,0.06);color:#e8e8f0;}
+
+    #playlistSelect{position:fixed;inset:0;background:rgba(5,5,10,0.6);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:11000;}
+    #playlistSelect .box{background:rgba(20,22,35,0.96);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:14px;width:320px;color:#e8e8f0;box-shadow:0 20px 60px rgba(0,0,0,0.55);}
+    #playlistSelect h4{margin:0 0 10px;font-size:18px;font-weight:800;}
+    #playlistSelect .item{padding:10px;border-radius:10px;cursor:pointer;}
+    #playlistSelect .item:hover{background:rgba(255,255,255,0.08);}
+    #playlistSelect .actions{display:flex;gap:8px;margin-top:12px;}
+    #playlistSelect .actions button{flex:1;border:none;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;background:rgba(255,255,255,0.06);color:#e8e8f0;}
+  `;
+  document.head.appendChild(style);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'playlistOverlay';
+  overlay.innerHTML = `
+    <div id="playlistModal">
+      <h4>새 플레이리스트</h4>
+      <label for="playlistTitle">제목</label>
+      <input id="playlistTitle" placeholder="플레이리스트 제목" />
+      <div class="actions">
+        <button class="ghost" id="plCancel" type="button">취소</button>
+        <button class="primary" id="plCreate" type="button">생성</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.style.display = 'none'; });
+
+  const select = document.createElement('div');
+  select.id = 'playlistSelect';
+  select.innerHTML = `
+    <div class="box">
+      <h4>플레이리스트 선택</h4>
+      <div id="playlistSelectList"></div>
+      <div class="actions">
+        <button type="button" id="plSelectCancel">닫기</button>
+        <button type="button" id="plSelectNew">새로 만들기</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(select);
+  select.addEventListener('click', (e) => { if (e.target === select) select.style.display = 'none'; });
+}
+
+function openCreatePlaylistModal(onCreate) {
+  ensurePlaylistModals();
+  const overlay = document.getElementById('playlistOverlay');
+  const input = document.getElementById('playlistTitle');
+  const btnCreate = document.getElementById('plCreate');
+  const btnCancel = document.getElementById('plCancel');
+  if (!overlay || !input || !btnCreate || !btnCancel) return;
+  input.value = '';
+  overlay.style.display = 'flex';
+  input.focus();
+  btnCancel.onclick = () => { overlay.style.display = 'none'; };
+  btnCreate.onclick = async () => {
+    const title = input.value.trim();
+    const pl = await createPlaylistApi(title || '새 플레이리스트');
+    overlay.style.display = 'none';
+    if (onCreate) onCreate(pl);
+  };
+}
+
+function openSelectPlaylistModal(track) {
+  ensurePlaylistModals();
+  const select = document.getElementById('playlistSelect');
+  const listEl = document.getElementById('playlistSelectList');
+  const btnCancel = document.getElementById('plSelectCancel');
+  const btnNew = document.getElementById('plSelectNew');
+  if (!select || !listEl || !btnCancel || !btnNew) return;
+  fetchPlaylists().then(playlists => {
+    listEl.innerHTML = playlists.length === 0
+      ? '<div style="padding:10px;color:#b6b9c9;">플레이리스트가 없습니다. 새로 만들어주세요.</div>'
+      : playlists.map(p => `<div class="item" data-pl="${p.id}">${p.title}</div>`).join('');
+    select.style.display = 'flex';
+    listEl.querySelectorAll('.item').forEach(item => {
+      item.onclick = async () => {
+        const pid = item.getAttribute('data-pl');
+        if (pid) await addTrackToPlaylistApi(track.id, pid);
+        select.style.display = 'none';
+        alert('플레이리스트에 추가되었습니다.');
+      };
+    });
+    btnCancel.onclick = () => { select.style.display = 'none'; };
+    btnNew.onclick = () => {
+      select.style.display = 'none';
+      openCreatePlaylistModal(async (pl) => {
+        await addTrackToPlaylistApi(track.id, pl.id);
+        alert('플레이리스트에 추가되었습니다.');
+      });
+    };
+  });
+}
+
+window.openCreatePlaylistModal = openCreatePlaylistModal;
+window.openSelectPlaylistModal = openSelectPlaylistModal;
 // 프로필 메뉴/모달 스타일
 function ensureProfileStyles() {
   if (document.getElementById('profileStyles')) return;
@@ -194,6 +333,38 @@ function ensureLogoutConfirmModal() {
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.style.display = 'none'; });
   overlay.querySelector('#logoutCancelBtn').onclick = () => { overlay.style.display = 'none'; };
+}
+
+async function performLogout() {
+  const actionEl = document.getElementById('authAction');
+  try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
+  try {
+    localStorage.removeItem('texttune_global_player');
+    sessionStorage.removeItem('texttune_global_player_session');
+    localStorage.removeItem('texttune_playlists');
+  } catch {}
+  const gp = document.getElementById('globalPlayer');
+  const audio = document.getElementById('gpAudio');
+  if (audio) audio.pause();
+  if (gp) gp.style.display = 'none';
+  if (actionEl) {
+    actionEl.textContent = '로그인';
+    actionEl.href = '#';
+    actionEl.onclick = (ev2) => { ev2.preventDefault(); openLoginModal(); };
+  }
+  await hydrateAuthControls();
+}
+
+function showLogoutModal() {
+  ensureLogoutConfirmModal();
+  const overlay = document.getElementById('logoutConfirmOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  const confirmBtn = overlay.querySelector('#logoutConfirmBtn');
+  const cancelBtn = overlay.querySelector('#logoutCancelBtn');
+  const closeModal = () => { overlay.style.display = 'none'; };
+  if (confirmBtn) confirmBtn.onclick = async () => { await performLogout(); closeModal(); };
+  if (cancelBtn) cancelBtn.onclick = closeModal;
 }
 
 // 프로필 메뉴
@@ -303,27 +474,7 @@ function attachProfileInteractions(me, initials) {
   if (logoutBtn) logoutBtn.onclick = async (e) => {
     e.preventDefault();
     menu.style.display = 'none';
-    const overlay = document.getElementById('logoutConfirmOverlay');
-    if (!overlay) return;
-    overlay.style.display = 'flex';
-    const confirmBtn = overlay.querySelector('#logoutConfirmBtn');
-    const cancelBtn = overlay.querySelector('#logoutCancelBtn');
-    const closeModal = () => { overlay.style.display = 'none'; };
-
-    const onConfirm = async () => {
-      const actionEl = document.getElementById('authAction');
-      try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
-      if (actionEl) {
-        actionEl.textContent = '로그인';
-        actionEl.href = '#';
-        actionEl.onclick = (ev2) => { ev2.preventDefault(); openLoginModal(); };
-      }
-      await hydrateAuthControls();
-      closeModal();
-    };
-
-    if (confirmBtn) confirmBtn.onclick = onConfirm;
-    if (cancelBtn) cancelBtn.onclick = closeModal;
+    showLogoutModal();
   };
 }
 
@@ -347,6 +498,8 @@ function attachProfileInteractions(me, initials) {
     #globalPlayer .wave-progress{position:absolute;inset:0;width:0%;background:repeating-linear-gradient(90deg,#3f6bff 0 2px, transparent 2px 4px);mix-blend-mode:screen;}
     #globalPlayer .time{font-size:12px;color:var(--muted,#b6b9c9);white-space:nowrap;}
     #globalPlayer .actions{display:flex;align-items:center;gap:8px;}
+    #globalPlayer .volume{display:flex;align-items:center;gap:8px;min-width:120px;}
+    #globalPlayer .volume input[type=range]{width:120px;accent-color:var(--grad2,#4b63ff);}
     #globalPlayer .actions a, #globalPlayer .actions button{border:none;border-radius:10px;padding:8px 10px;font-weight:700;cursor:pointer;}
     #globalPlayer .actions a{background:rgba(255,255,255,0.08);color:var(--text,#e8e8f0);text-decoration:none;}
     #globalPlayer .actions button{background:rgba(255,255,255,0.06);color:var(--text,#e8e8f0);}
@@ -376,6 +529,10 @@ function attachProfileInteractions(me, initials) {
     </div>
     <audio id="gpAudio"></audio>
     <div class="actions">
+      <div class="volume">
+        <span style="font-size:12px;color:var(--muted,#b6b9c9);">🔊</span>
+        <input id="gpVolume" type="range" min="0" max="1" step="0.01" value="1" />
+      </div>
       <a id="gpDownload" href="#" download>다운로드</a>
       <button id="gpClose" type="button">닫기</button>
     </div>
@@ -392,6 +549,11 @@ function attachProfileInteractions(me, initials) {
   const timeNow = bar.querySelector('#gpTime');
   const timeTotal = bar.querySelector('#gpDuration');
   const STORAGE_KEY = 'texttune_global_player';
+  const SESSION_KEY = 'texttune_global_player_session';
+  const volumeInput = bar.querySelector('#gpVolume');
+  let queue = [];
+  let queueIdx = 0;
+  let loopQueue = true;
 
   function saveState(extra = {}) {
     if (!audio) return;
@@ -401,6 +563,7 @@ function attachProfileInteractions(me, initials) {
       meta: meta?.textContent || '',
       download: dl?.getAttribute('href') || '',
       currentTime: audio.currentTime || 0,
+      volume: audio.volume,
       ...extra,
     };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
@@ -414,22 +577,52 @@ function attachProfileInteractions(me, initials) {
     } catch { return null; }
   }
 
-  function setTrack(track, autoplay = true) {
+  function setTrack(track, { autoplay = true, q = null, index = 0, loop = true } = {}) {
     if (!audio || !title || !meta || !dl) return;
+    if (Array.isArray(q) && q.length) {
+      queue = q;
+      queueIdx = index >= 0 ? index : 0;
+      loopQueue = loop;
+    } else if (track && !q) {
+      queue = [track];
+      queueIdx = 0;
+      loopQueue = loop;
+    }
     title.textContent = track.title || track.prompt_title || track.prompt_raw || '재생할 트랙';
     meta.textContent = `${track.format || '?'} · ${track.samplerate || '?'}Hz · ${track.duration ? `${Math.round(track.duration)}s` : '?:??'}`;
     audio.src = track.audio_url;
     dl.href = track.download_url || track.audio_url || '#';
     bar.style.display = 'flex';
-    saveState({ src: audio.src, title: title.textContent, meta: meta.textContent, download: dl.href, currentTime: 0 });
+    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch {}
+    saveState({ src: audio.src, title: title.textContent, meta: meta.textContent, download: dl.href, currentTime: 0, volume: audio.volume });
     if (waveFill) waveFill.style.width = '0%';
     if (timeNow) timeNow.textContent = '0:00';
     if (timeTotal) timeTotal.textContent = formatTime(track.duration || 0);
     audio.load();
     if (autoplay) audio.play().catch(() => {});
   }
+  function playNext() {
+    if (!queue.length) return;
+    queueIdx += 1;
+    if (queueIdx >= queue.length) {
+      if (!loopQueue) return;
+      queueIdx = 0;
+    }
+    const next = queue[queueIdx];
+    if (next) setTrack(next, { autoplay: true, q: queue, index: queueIdx, loop: loopQueue });
+  }
+  function playPrev() {
+    if (!queue.length) return;
+    queueIdx -= 1;
+    if (queueIdx < 0) queueIdx = Math.max(queue.length - 1, 0);
+    const prev = queue[queueIdx];
+    if (prev) setTrack(prev, { autoplay: true, q: queue, index: queueIdx, loop: loopQueue });
+  }
 
   function restore() {
+    try {
+      if (!sessionStorage.getItem(SESSION_KEY)) return;
+    } catch {}
     const st = loadState();
     if (!st || !audio) return;
     if (st.src) {
@@ -437,6 +630,10 @@ function attachProfileInteractions(me, initials) {
       meta.textContent = st.meta || '';
       dl.href = st.download || st.src;
       audio.src = st.src;
+      if (volumeInput && typeof st.volume === 'number') {
+        volumeInput.value = st.volume;
+        audio.volume = st.volume;
+      }
       bar.style.display = 'flex';
       audio.currentTime = st.currentTime || 0;
     }
@@ -463,6 +660,15 @@ function attachProfileInteractions(me, initials) {
     audio.addEventListener('loadedmetadata', updateProgress);
     audio.addEventListener('play', () => { if (playBtn) playBtn.textContent = '⏸'; });
     audio.addEventListener('pause', () => { if (playBtn) playBtn.textContent = '▶'; });
+    audio.addEventListener('ended', () => playNext());
+  }
+  if (volumeInput && audio) {
+    volumeInput.addEventListener('input', () => {
+      const v = parseFloat(volumeInput.value);
+      if (!Number.isFinite(v)) return;
+      audio.volume = Math.min(1, Math.max(0, v));
+      saveState({ volume: audio.volume });
+    });
   }
   if (playBtn && audio) {
     playBtn.onclick = () => {

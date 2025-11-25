@@ -39,6 +39,12 @@
       .btn-primary{background:linear-gradient(120deg,var(--grad1),var(--grad2));color:#fff;}
       .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);}
       .btn-danger{background:#c0392b;color:#fff;}
+      .more-wrap{position:relative;display:inline-flex;align-items:center;}
+      .more-btn{border:none;background:rgba(255,255,255,0.06);color:var(--text);width:34px;height:34px;border-radius:10px;cursor:pointer;font-weight:800;}
+      .more-menu{position:absolute;top:100%;right:0;min-width:170px;background:rgba(12,14,24,0.95);border:1px solid rgba(255,255,255,0.08);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,0.45);padding:4px 0;display:none;z-index:2000;overflow:hidden;}
+      .more-menu button,.more-menu a{all:unset;display:block;width:100%;padding:10px 12px;color:var(--text);font-size:14px;cursor:pointer;box-sizing:border-box;}
+      .more-menu button:hover,.more-menu a:hover{background:rgba(255,255,255,0.08);}
+      .more-menu .danger{color:#ff6b6b;}
       .empty{display:flex;align-items:center;justify-content:center;flex-direction:column;color:#b1b5c6;gap:14px;text-align:center}
       .empty-icon{width:140px;height:140px;background:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><circle cx="256" cy="256" r="200" fill="%230d0f1f"/><circle cx="256" cy="256" r="170" fill="%23161a33"/><circle cx="256" cy="256" r="120" fill="%230d0f1f"/><circle cx="256" cy="256" r="16" fill="%23464c6a"/><path d="M332 116v186.7c-9-5-21.7-8-35.8-8-32.1 0-58.2 16.5-58.2 36.8s26.1 36.8 58.2 36.8 58.2-16.5 58.2-36.8V188l58-12v-60l-80 16z" fill="%23b29cff"/></svg>') center/contain no-repeat;}
     </style>
@@ -54,6 +60,7 @@
           <a href="/">홈</a>
           <a href="generate.html">음원 생성</a>
           <a href="library.html" class="active">보관함</a>
+          <a href="playlist.html">플레이리스트</a>
           <a id="authAction" href="#">로그인</a>
         </nav>
         <span id="authUser"></span>
@@ -155,16 +162,16 @@
             </div>
             <div class="lib-right">
               <button class="btn btn-ghost" data-play="${t.id}">재생</button>
-              <a class="btn btn-ghost" href="${t.download_url}">다운로드</a>
-              <button class="btn btn-danger" data-id="${t.id}">삭제</button>
+              <div class="more-wrap">
+                <button class="more-btn" aria-label="더 보기" data-more="${t.id}">⋯</button>
+                <div class="more-menu" data-menu="${t.id}">
+                  <a href="${t.download_url}" download>다운로드</a>
+                  <button type="button" data-add-playlist="${t.id}">플레이리스트 담기</button>
+                  <button type="button" class="danger" data-id="${t.id}">삭제</button>
+                </div>
+              </div>
             </div>
           `;
-          row.querySelector('button[data-id]')?.addEventListener('click', async (e) => {
-            const id = e.target.getAttribute('data-id');
-            if (!confirm('해당 음원을 삭제하시겠습니까?')) return;
-            await fetch(`/v1/library/${id}`, { method: 'DELETE', credentials: 'include' });
-            await load();
-          });
           const playBtn = row.querySelector('button[data-play]');
           const iconEl = row.querySelector('.lib-icon');
           const triggerPlay = () => {
@@ -185,8 +192,56 @@
           };
           if (playBtn) playBtn.addEventListener('click', (ev) => { ev.preventDefault(); triggerPlay(); });
           if (iconEl) iconEl.addEventListener('click', (ev) => { ev.preventDefault(); triggerPlay(); });
+          const moreBtn = row.querySelector(`button[data-more="${t.id}"]`);
+          const menu = row.querySelector(`.more-menu[data-menu="${t.id}"]`);
+          if (moreBtn && menu) {
+            moreBtn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              document.querySelectorAll('.more-menu').forEach(m => { if (m !== menu) m.style.display = 'none'; });
+              menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+            });
+          }
+          const delBtn = row.querySelector('button[data-id]');
+          if (delBtn) {
+            delBtn.addEventListener('click', async (e) => {
+              const id = e.target.getAttribute('data-id');
+              if (!confirm('해당 음원을 삭제하시겠습니까?')) return;
+              await fetch(`/v1/library/${id}`, { method: 'DELETE', credentials: 'include' });
+              await load();
+            });
+          }
+          const addBtn = row.querySelector(`button[data-add-playlist="${t.id}"]`);
+          if (addBtn) {
+            addBtn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              if (window.openSelectPlaylistModal) {
+                window.openSelectPlaylistModal({
+                  id: t.id,
+                  prompt_title: t.prompt_title,
+                  prompt_raw: t.prompt_raw,
+                  prompt_expanded: t.prompt_expanded,
+                  audio_url: t.audio_url,
+                  download_url: t.download_url,
+                  format: t.format,
+                  samplerate: t.samplerate,
+                  duration: t.duration,
+                  created_at: t.created_at,
+                });
+              }
+              if (menu) menu.style.display = 'none';
+            });
+          }
           container.appendChild(row);
         });
+
+        if (!window.__moreMenuOutsideHandler) {
+          document.addEventListener('click', (ev) => {
+            if (!ev.target.closest('.more-wrap')) {
+              document.querySelectorAll('.more-menu').forEach(m => { m.style.display = 'none'; });
+            }
+          });
+          window.__moreMenuOutsideHandler = true;
+        }
       }
 
       function openGlobalPlayer(track) {

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>플레이리스트 | TexTune</title>
+    <style>
+      :root{
+        --bg:#0f1222; --panel:#191c33; --panel2:#14172a; --stroke:#2a2f55; --text:#e8e8f0; --muted:#b6b9c9; --brand:#8ad;
+        --grad1:#a65cff; --grad2:#4b63ff; --sidebar:#0b0d1a; --pill:#f2eaff; --pill-text:#3f2c5c;
+      }
+      *{box-sizing:border-box}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+      .layout{display:flex;width:100%}
+      .sidebar{width:220px;min-height:100vh;background:var(--sidebar);border-right:1px solid var(--stroke);padding:18px 14px;position:sticky;top:0;align-self:flex-start}
+      .side-brand{display:flex;align-items:center;gap:10px;margin-bottom:18px;font-weight:800;color:var(--text);text-decoration:none}
+      .side-logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--grad1),var(--grad2));display:grid;place-items:center;font-weight:800;color:#fff}
+      .side-nav{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+      .side-nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--text);text-decoration:none;border:1px solid transparent}
+      .side-nav a:hover{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.08)}
+      .side-nav a.active{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.1)}
+      #authUser{color:var(--muted);font-size:12px;margin-top:16px;display:block}
+      .main{flex:1;padding:32px 32px 48px}
+      .page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+      .page-head h2{margin:0;font-size:28px;font-weight:800}
+      .pl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+      .card{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:14px;box-shadow:0 10px 24px rgba(0,0,0,0.18);cursor:pointer;display:flex;flex-direction:column;gap:6px;}
+      .card:hover{border-color:rgba(255,255,255,0.1);}
+      .card .title{font-weight:800;font-size:16px;}
+      .card .meta{font-size:12px;color:var(--muted);}
+      .tracks{margin-top:18px;display:flex;flex-direction:column;gap:10px;}
+      .track-row{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:10px;}
+      .track-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+      .track-title{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .track-meta{font-size:12px;color:var(--muted);}
+      .actions{display:flex;align-items:center;gap:8px;}
+      .btn{border:none;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:750;font-size:13px;}
+      .btn-primary{background:linear-gradient(120deg,var(--grad1),var(--grad2));color:#fff;}
+      .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);}
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <a class="side-brand" href="/">
+          <div class="side-logo">TT</div>
+          <span>TexTune</span>
+        </a>
+        <nav class="side-nav">
+          <a href="/">홈</a>
+          <a href="generate.html">음원 생성</a>
+          <a href="library.html">보관함</a>
+          <a href="playlist.html" class="active">플레이리스트</a>
+          <a id="authAction" href="#">로그인</a>
+        </nav>
+        <span id="authUser"></span>
+      </aside>
+      <main class="main">
+        <div class="page-head">
+          <h2>플레이리스트</h2>
+          <button class="btn btn-primary" id="newPl">새 플레이리스트 생성</button>
+        </div>
+        <div class="pl-grid" id="plList"></div>
+        <div id="plDetail"></div>
+      </main>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+      (async () => {
+        await hydrateAuthControls();
+        await ensureAuthed();
+        await loadPlaylistsUI();
+        ensurePlaylistModals();
+      })();
+
+      function formatDuration(sec) {
+        if (typeof sec !== 'number' || !Number.isFinite(sec)) return '';
+        const total = Math.max(0, Math.round(sec));
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return `${m}:${s.toString().padStart(2,'0')}`;
+      }
+
+      document.getElementById('newPl').onclick = () => openCreatePlaylistModal(loadPlaylistsUI);
+
+      async function loadPlaylistsUI() {
+        const list = await fetchPlaylists();
+        const container = document.getElementById('plList');
+        container.innerHTML = '';
+        const addCard = document.createElement('div');
+        addCard.className = 'card';
+        addCard.innerHTML = '<div class="title">+ 새 플레이리스트</div><div class="meta">클릭해 생성</div>';
+        addCard.onclick = () => openCreatePlaylistModal(loadPlaylistsUI);
+        container.appendChild(addCard);
+        list.forEach(pl => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `<div class="title">${pl.title}</div><div class="meta">${pl.created_at || ''}</div>`;
+          card.onclick = () => loadPlaylistDetail(pl.id, pl.title);
+          container.appendChild(card);
+        });
+      }
+
+      async function loadPlaylistDetail(id, title) {
+        const detail = document.getElementById('plDetail');
+        detail.innerHTML = '<div class="card">로딩 중...</div>';
+        try {
+          const pl = await fetchPlaylistDetail(id);
+          detail.innerHTML = `
+            <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:16px;box-shadow:0 10px 24px rgba(0,0,0,0.18);">
+              <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+                <div>
+                  <div style="font-size:20px;font-weight:800;">${pl.title}</div>
+                  <div class="meta">${pl.tracks?.length || 0}곡</div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-ghost" id="plDelete">삭제</button>
+                  <button class="btn btn-primary" id="plPlayAll">전체 재생</button>
+                </div>
+              </div>
+              <div class="tracks" id="plTracks"></div>
+            </div>
+          `;
+          const tracksEl = detail.querySelector('#plTracks');
+          (pl.tracks || []).forEach((t, idx) => {
+            const row = document.createElement('div');
+            row.className = 'track-row';
+            row.innerHTML = `
+              <div class="track-main">
+                <div class="track-title">${t.prompt_title || t.prompt_raw || '트랙'}</div>
+                <div class="track-meta">${t.format || '?'} · ${t.samplerate || '?'}Hz · ${formatDuration(t.duration) || '?:??'}</div>
+              </div>
+              <div class="actions">
+                <button class="btn btn-ghost" data-play="${idx}">재생</button>
+              </div>
+            `;
+            row.querySelector('[data-play]')?.addEventListener('click', () => {
+              if (window.setGlobalPlayerTrack) {
+                window.setGlobalPlayerTrack(t, { autoplay: true, q: pl.tracks, index: idx, loop: true });
+              }
+            });
+            tracksEl.appendChild(row);
+          });
+          detail.querySelector('#plPlayAll')?.addEventListener('click', () => {
+            if (pl.tracks?.length && window.setGlobalPlayerTrack) {
+              window.setGlobalPlayerTrack(pl.tracks[0], { autoplay: true, q: pl.tracks, index: 0, loop: true });
+              // 재생 보장: play 호출 한번 더 시도
+              setTimeout(() => {
+                const audio = document.getElementById('gpAudio');
+                if (audio && audio.paused) audio.play().catch(() => {});
+              }, 50);
+            }
+          });
+          detail.querySelector('#plDelete')?.addEventListener('click', async () => {
+            if (!confirm('이 플레이리스트를 삭제할까요?')) return;
+            try {
+              await api(`/v1/playlists/${encodeURIComponent(id)}`, { method: 'DELETE' });
+              detail.innerHTML = '';
+              await loadPlaylistsUI();
+            } catch (err) {
+              alert('삭제에 실패했습니다.');
+            }
+          });
+        } catch (err) {
+          detail.innerHTML = '<div class="card">불러오기 실패</div>';
+        }
+      }
+    </script>
+  </body>
+</html>

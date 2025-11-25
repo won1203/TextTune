@@ -68,6 +68,24 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_tracks_user_created_at ON tracks(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_jobs_user_created_at ON generation_jobs(user_id, created_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    CREATE TABLE IF NOT EXISTS playlists (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS playlist_tracks (
+      playlist_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      pos INTEGER DEFAULT 0,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (playlist_id, track_id),
+      FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+      FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+    );
   `);
 
   dbInstance = db;

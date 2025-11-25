@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const { v4: uuidv4 } = require('uuid');
+const { initDb, usersRepo, jobsRepo, tracksRepo } = require('./db');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -28,6 +29,7 @@ const googleOAuthClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
   : null;
 
 const app = express();
+initDb();
 
 const authStates = new Map(); // state -> { codeVerifier, next, createdAt }
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -69,13 +71,6 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(cors({ origin: ALLOW_ORIGIN, credentials: true }));
-
-// In-memory stores (replace with DB later)
-const db = {
-  users: new Map(), // id -> { id, email, createdAt }
-  jobs: new Map(),  // jobId -> { ... }
-  tracks: new Map() // trackId -> { ... }
-};
 
 // Auth helpers
 function signToken(payload) {
@@ -145,21 +140,12 @@ app.get('/v1/auth/google/callback', async (req, res) => {
     const email = payload.email;
     if (!sub || !email) throw new Error('missing_profile');
 
-    const userId = `google-${sub}`;
-    let user = db.users.get(userId);
-    if (!user) {
-      user = Array.from(db.users.values()).find(u => u.email === email) || {
-        id: userId,
-        createdAt: new Date().toISOString(),
-        plan: 'free',
-      };
-    }
-    user.email = email;
-    user.name = payload.name || user.name || '';
-    user.picture = payload.picture || user.picture || '';
-    user.auth_provider = 'google';
-
-    db.users.set(user.id, user);
+    const user = usersRepo.upsertGoogleProfile({
+      sub,
+      email,
+      name: payload.name || '',
+      picture: payload.picture || '',
+    });
 
     const token = signToken({ userId: user.id, email: user.email });
     res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
@@ -174,11 +160,7 @@ app.get('/v1/auth/google/callback', async (req, res) => {
 app.post('/v1/auth/login', (req, res) => {
   const { email } = req.body || {};
   if (!email || typeof email !== 'string') return res.status(400).json({ error: 'invalid_email' });
-  let user = Array.from(db.users.values()).find(u => u.email === email);
-  if (!user) {
-    user = { id: uuidv4(), email, createdAt: new Date().toISOString(), plan: 'free' };
-    db.users.set(user.id, user);
-  }
+  const user = usersRepo.findOrCreateByEmail(email);
   const token = signToken({ userId: user.id, email: user.email });
   res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
   res.json({ ok: true, user: { id: user.id, email: user.email } });
@@ -190,7 +172,7 @@ app.post('/v1/auth/logout', (req, res) => {
 });
 
 app.get('/v1/me', authRequired, (req, res) => {
-  const user = db.users.get(req.user.userId);
+  const user = usersRepo.findById(req.user.userId);
   if (!user) {
     res.clearCookie('token');
     return res.status(401).json({ error: 'unauthorized' });
@@ -236,6 +218,7 @@ async function runJob(job) {
   active++;
   job.status = 'running';
   job.progress = 0.05;
+  jobsRepo.markRunning(job.id, job.userId, job.progress);
   broadcastProgress(job);
 
   const start = Date.now();
@@ -243,24 +226,25 @@ async function runJob(job) {
     const elapsed = (Date.now() - start) / 1000;
     const approxDur = (job.params.duration || 10);
     job.progress = Math.min(0.9, 0.1 + elapsed / Math.max(3, approxDur - 2));
+    jobsRepo.setProgress(job.id, job.userId, job.progress);
     broadcastProgress(job);
   }, 500);
 
-    try {
-      if (!HF_SPACE_ID) {
-        throw new Error('HF_SPACE_ID is not configured.');
-      }
+  try {
+    if (!HF_SPACE_ID) {
+      throw new Error('HF_SPACE_ID is not configured.');
+    }
 
-      const tracksDir = path.join(__dirname, '..', 'storage', job.userId);
-      const trackId = uuidv4();
-      const renderInfo = await generateSpaceAudioTrack({
-        prompt: job.prompt_expanded,
-        durationSec: job.params.duration ?? undefined,
-        samplerate: job.params.samplerate,
-        seed: job.params.seed,
-        outDir: tracksDir,
-        filenamePrefix: trackId,
-      });
+    const tracksDir = path.join(__dirname, '..', 'storage', job.userId);
+    const trackId = uuidv4();
+    const renderInfo = await generateSpaceAudioTrack({
+      prompt: job.prompt_expanded,
+      durationSec: job.params.duration ?? undefined,
+      samplerate: job.params.samplerate,
+      seed: job.params.seed,
+      outDir: tracksDir,
+      filenamePrefix: trackId,
+    });
 
     const track = {
       id: trackId,
@@ -278,13 +262,22 @@ async function runJob(job) {
       prompt_expanded: job.prompt_expanded,
       params: job.params,
     };
-    db.tracks.set(track.id, track);
+    const finishedAt = track.created_at;
+
+    tracksRepo.insertAndLinkToJob(track, {
+      jobId: job.id,
+      userId: job.userId,
+      finished_at: finishedAt,
+      audio_url: `/v1/stream/${track.id}`,
+    });
 
     job.status = 'succeeded';
     job.progress = 1.0;
-    job.finished_at = new Date().toISOString();
+    job.finished_at = finishedAt;
     job.result_track_id = track.id;
     job.audio_url = `/v1/stream/${track.id}`;
+    job.error = null;
+    job.error_code = null;
     broadcastProgress(job);
   } catch (e) {
     job.status = 'failed';
@@ -293,6 +286,14 @@ async function runJob(job) {
       : (e?.userMessage || e?.message || e?.details || 'render_error');
     job.error = errMsg;
     job.error_code = e?.code || 'render_error';
+    job.progress = 1;
+    job.finished_at = new Date().toISOString();
+    jobsRepo.markFailed(job.id, job.userId, {
+      finished_at: job.finished_at,
+      progress: job.progress,
+      error: job.error,
+      error_code: job.error_code,
+    });
     console.error('Render job failed', e);
   } finally {
     clearInterval(tick);
@@ -357,8 +358,8 @@ app.post('/v1/generations', authRequired, async (req, res) => {
       error_code: null,
       audio_url: null,
     };
-    db.jobs.set(jobId, job);
-    queue.push(job);
+    const persisted = jobsRepo.create(job);
+    queue.push({ ...job, created_at: persisted.created_at });
     processQueue();
     res.json({ job_id: jobId, status: job.status });
   } catch (err) {
@@ -369,8 +370,8 @@ app.post('/v1/generations', authRequired, async (req, res) => {
 
 // Get job status
 app.get('/v1/generations/:jobId', authRequired, (req, res) => {
-  const job = db.jobs.get(req.params.jobId);
-  if (!job || job.userId !== req.user.userId) return res.status(404).json({ error: 'not_found' });
+  const job = jobsRepo.findByIdForUser(req.params.jobId, req.user.userId);
+  if (!job) return res.status(404).json({ error: 'not_found' });
   res.json({
     status: job.status,
     progress: job.progress,
@@ -385,38 +386,35 @@ app.get('/v1/generations/:jobId', authRequired, (req, res) => {
 
 // Library list
 app.get('/v1/library', authRequired, (req, res) => {
-  const items = Array.from(db.tracks.values())
-    .filter(t => t.user_id === req.user.userId)
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-    .slice(0, Number(req.query.limit) || 20)
-    .map(t => ({
-      id: t.id,
-      created_at: t.created_at,
-      duration: t.duration,
-      samplerate: t.samplerate,
-      format: t.format,
-      audio_url: `/v1/stream/${t.id}`,
-      download_url: `/v1/download/${t.id}`,
-      prompt_raw: t.prompt_raw,
-      prompt_expanded: t.prompt_expanded,
-      prompt_title: promptTitleFromTrack(t),
-    }));
+  const limit = Number(req.query.limit) || 20;
+  const tracks = tracksRepo.listByUser(req.user.userId, limit);
+  const items = tracks.map(t => ({
+    id: t.id,
+    created_at: t.created_at,
+    duration: t.duration,
+    samplerate: t.samplerate,
+    format: t.format,
+    audio_url: `/v1/stream/${t.id}`,
+    download_url: `/v1/download/${t.id}`,
+    prompt_raw: t.prompt_raw,
+    prompt_expanded: t.prompt_expanded,
+    prompt_title: promptTitleFromTrack(t),
+  }));
   res.json({ items, next_cursor: null });
 });
 
 // Delete from library
 app.delete('/v1/library/:trackId', authRequired, (req, res) => {
-  const t = db.tracks.get(req.params.trackId);
-  if (!t || t.user_id !== req.user.userId) return res.status(404).json({ error: 'not_found' });
-  db.tracks.delete(t.id);
+  const t = tracksRepo.deleteByIdForUser(req.params.trackId, req.user.userId);
+  if (!t) return res.status(404).json({ error: 'not_found' });
   try { fs.unlinkSync(t.storage_key_original); } catch {}
   res.json({ ok: true });
 });
 
 // Track metadata
 app.get('/v1/tracks/:trackId', authRequired, (req, res) => {
-  const t = db.tracks.get(req.params.trackId);
-  if (!t || t.user_id !== req.user.userId) return res.status(404).json({ error: 'not_found' });
+  const t = tracksRepo.findByIdForUser(req.params.trackId, req.user.userId);
+  if (!t) return res.status(404).json({ error: 'not_found' });
   res.json({
     id: t.id,
     created_at: t.created_at,
@@ -434,8 +432,8 @@ app.get('/v1/tracks/:trackId', authRequired, (req, res) => {
 
 // Stream with range support
 app.get('/v1/stream/:trackId', authRequired, (req, res) => {
-  const t = db.tracks.get(req.params.trackId);
-  if (!t || t.user_id !== req.user.userId) return res.status(404).end();
+  const t = tracksRepo.findByIdForUser(req.params.trackId, req.user.userId);
+  if (!t) return res.status(404).end();
   const file = t.storage_key_original;
   if (!fs.existsSync(file)) return res.status(404).end();
   const stat = fs.statSync(file);
@@ -466,8 +464,8 @@ app.get('/v1/stream/:trackId', authRequired, (req, res) => {
 
 // Download (attachment)
 app.get('/v1/download/:trackId', authRequired, (req, res) => {
-  const t = db.tracks.get(req.params.trackId);
-  if (!t || t.user_id !== req.user.userId) return res.status(404).end();
+  const t = tracksRepo.findByIdForUser(req.params.trackId, req.user.userId);
+  if (!t) return res.status(404).end();
   const ext = (t.format || 'wav').toLowerCase();
   const mimeType = contentTypeForFormat(ext);
   res.setHeader('Content-Disposition', `attachment; filename="texttune-${t.id}.${ext}"`);

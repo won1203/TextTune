@@ -158,8 +158,35 @@ function ensureProfileStyles() {
     #profileProfileModal p{margin:2px 0;text-align:center;color:#b7b9ca;font-size:14px}
     #profileProfileModal .field{margin:18px 0 6px;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:10px 12px;background:rgba(255,255,255,0.04);}
     #profileProfileModal .primary{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(90deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));color:#fff;font-weight:800;cursor:pointer;margin-top:12px;}
+    #logoutConfirmOverlay{position:fixed;inset:0;background:rgba(5,5,10,0.65);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:9999;}
+    #logoutConfirmModal{background:linear-gradient(160deg,rgba(25,28,51,0.95),rgba(15,18,34,0.95));border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:22px 20px;max-width:360px;width:92%;color:#e8e8f0;box-shadow:0 26px 70px rgba(0,0,0,0.45);position:relative;}
+    #logoutConfirmModal h4{margin:0 0 10px;font-size:18px;font-weight:800;text-align:center;}
+    #logoutConfirmModal p{margin:0 0 18px;font-size:14px;color:#b7b9ca;text-align:center;}
+    #logoutConfirmModal .actions{display:flex;gap:10px;}
+    #logoutConfirmModal button{flex:1;padding:12px;border:none;border-radius:10px;font-weight:700;cursor:pointer;}
+    #logoutConfirmModal .secondary{background:rgba(255,255,255,0.08);color:#e8e8f0;border:1px solid rgba(255,255,255,0.1);}
+    #logoutConfirmModal .primary{background:linear-gradient(90deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));color:#fff;}
   `;
   document.head.appendChild(style);
+}
+
+function ensureLogoutConfirmModal() {
+  if (document.getElementById('logoutConfirmOverlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'logoutConfirmOverlay';
+  overlay.innerHTML = `
+    <div id="logoutConfirmModal">
+      <h4>로그아웃 하시겠습니까?</h4>
+      <p>현재 세션에서 로그아웃합니다.</p>
+      <div class="actions">
+        <button class="secondary" id="logoutCancelBtn" type="button">아니오</button>
+        <button class="primary" id="logoutConfirmBtn" type="button">예</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.style.display = 'none'; });
+  overlay.querySelector('#logoutCancelBtn').onclick = () => { overlay.style.display = 'none'; };
 }
 
 // 프로필 메뉴
@@ -193,13 +220,28 @@ function buildProfileModal(me, initials) {
           <span>🙍‍♂️</span>
           <input id="profileModalNameInput" style="flex:1;background:transparent;border:none;color:inherit;outline:none" value="${me.name || ''}" placeholder="이름" />
         </div>
-        <button class="primary" id="profileModalSave" type="button">저장 (표시만)</button>
+        <button class="primary" id="profileModalSave" type="button">저장</button>
       </div>
     `;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeProfileModal(); });
     overlay.querySelector('.close-btn').onclick = () => closeProfileModal();
-    overlay.querySelector('#profileModalSave').onclick = () => closeProfileModal();
+    const saveBtn = overlay.querySelector('#profileModalSave');
+    const nameInput = overlay.querySelector('#profileModalNameInput');
+    saveBtn.onclick = async () => {
+      const nextName = (nameInput.value || '').trim();
+      try {
+        const updated = await api('/v1/me', { method: 'PATCH', body: { name: nextName } });
+        overlay.querySelector('#profileModalName').textContent = updated.name || '내 계정';
+        overlay.querySelector('#profileModalId').textContent = `사용자 ID: ${updated.userId || 'N/A'}`;
+        overlay.querySelector('.avatar').textContent = (updated.name || updated.email || '?').trim().slice(0, 1).toUpperCase();
+        await hydrateAuthControls();
+        closeProfileModal();
+      } catch (err) {
+        console.error('Failed to save profile name', err);
+        alert('이름 저장에 실패했습니다. 다시 시도해주세요.');
+      }
+    };
   } else {
     overlay.querySelector('#profileModalName').textContent = me.name || '내 계정';
     overlay.querySelector('#profileModalEmail').textContent = `이메일: ${me.email || ''}`;
@@ -219,6 +261,7 @@ let profileOutsideHandlerAttached = false;
 
 function attachProfileInteractions(me, initials) {
   buildProfileMenu();
+  ensureLogoutConfirmModal();
   const summary = document.getElementById('profileSummary');
   const menu = document.getElementById('profileMenu');
   if (!summary || !menu) return;
@@ -253,13 +296,26 @@ function attachProfileInteractions(me, initials) {
   if (logoutBtn) logoutBtn.onclick = async (e) => {
     e.preventDefault();
     menu.style.display = 'none';
-    const actionEl = document.getElementById('authAction');
-    try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
-    if (actionEl) {
-      actionEl.textContent = '로그인';
-      actionEl.href = '#';
-      actionEl.onclick = (ev2) => { ev2.preventDefault(); openLoginModal(); };
-    }
-    hydrateAuthControls();
+    const overlay = document.getElementById('logoutConfirmOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    const confirmBtn = overlay.querySelector('#logoutConfirmBtn');
+    const cancelBtn = overlay.querySelector('#logoutCancelBtn');
+    const closeModal = () => { overlay.style.display = 'none'; };
+
+    const onConfirm = async () => {
+      const actionEl = document.getElementById('authAction');
+      try { await api('/v1/auth/logout', { method: 'POST' }); } catch {}
+      if (actionEl) {
+        actionEl.textContent = '로그인';
+        actionEl.href = '#';
+        actionEl.onclick = (ev2) => { ev2.preventDefault(); openLoginModal(); };
+      }
+      await hydrateAuthControls();
+      closeModal();
+    };
+
+    if (confirmBtn) confirmBtn.onclick = onConfirm;
+    if (cancelBtn) cancelBtn.onclick = closeModal;
   };
 }

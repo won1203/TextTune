@@ -97,9 +97,19 @@ function upsertGoogleProfile({ sub, email, name, picture }) {
   return serializeUser(updated);
 }
 
+function updateName(id, name) {
+  if (!id) return null;
+  const db = getDb();
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  db.prepare('UPDATE users SET name = @name WHERE id = @id').run({ id, name: trimmed });
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  return serializeUser(row);
+}
+
 module.exports = {
   findById,
   findByEmail,
   findOrCreateByEmail,
   upsertGoogleProfile,
+  updateName,
 };

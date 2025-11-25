@@ -177,7 +177,35 @@ app.get('/v1/me', authRequired, (req, res) => {
     res.clearCookie('token');
     return res.status(401).json({ error: 'unauthorized' });
   }
-  res.json({ id: user.id, email: user.email, plan: user.plan });
+  res.json({
+    id: user.id,
+    userId: user.id,
+    email: user.email,
+    name: user.name || '',
+    plan: user.plan,
+    picture: user.picture || '',
+  });
+});
+
+app.patch('/v1/me', authRequired, (req, res) => {
+  const { name } = req.body || {};
+  if (name != null && typeof name !== 'string') {
+    return res.status(400).json({ error: 'invalid_name' });
+  }
+  const trimmed = (name || '').trim();
+  if (trimmed.length > 120) {
+    return res.status(400).json({ error: 'name_too_long' });
+  }
+  const updated = usersRepo.updateName(req.user.userId, trimmed);
+  if (!updated) return res.status(404).json({ error: 'not_found' });
+  res.json({
+    id: updated.id,
+    userId: updated.id,
+    email: updated.email,
+    name: updated.name || '',
+    plan: updated.plan,
+    picture: updated.picture || '',
+  });
 });
 
 // Safety filter (very basic)

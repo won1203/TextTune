@@ -156,11 +156,11 @@
             if (s.status === 'succeeded') {
               clearInterval(id);
               statusEl.textContent = '완료';
-              const link = `/track.html?id=${encodeURIComponent(s.track_id)}`;
+              const toLib = () => { window.location.href = '/library.html'; };
               resultEl.innerHTML = `<button class="primary listen-btn" type="button">감상하기</button>`;
-              resultEl.querySelector('.listen-btn')?.addEventListener('click', () => {
-                window.location.href = link;
-              });
+              resultEl.querySelector('.listen-btn')?.addEventListener('click', toLib);
+              // 자동 이동을 원하면 아래 주석 해제
+              // toLib();
             } else if (s.status === 'failed') {
               clearInterval(id);
               statusEl.textContent = '실패: ' + (s.error || 'unknown');

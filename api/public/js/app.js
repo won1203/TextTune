@@ -491,11 +491,16 @@ function attachProfileInteractions(me, initials) {
     #globalPlayer .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
     #globalPlayer .info .title{font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     #globalPlayer .info .meta{font-size:12px;color:var(--muted,#b6b9c9);}
-    #globalPlayer .player-body{flex:1;min-width:0;display:flex;align-items:center;gap:10px;}
-    #globalPlayer .play-btn{width:42px;height:42px;border-radius:14px;border:none;background:linear-gradient(140deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));color:#fff;display:grid;place-items:center;cursor:pointer;}
-    #globalPlayer .wave-wrap{flex:1;min-width:0;display:flex;align-items:center;gap:10px;}
-    #globalPlayer .wave{position:relative;flex:1;height:26px;border-radius:8px;overflow:hidden;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.12) 0 2px, transparent 2px 4px);}
+    #globalPlayer .player-body{flex:1;min-width:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+    #globalPlayer .transport{display:flex;align-items:center;gap:8px;}
+    #globalPlayer .t-btn{width:38px;height:38px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.04);color:#e8e8f0;display:grid;place-items:center;cursor:pointer;}
+    #globalPlayer .t-btn.primary{width:46px;height:46px;background:linear-gradient(140deg,var(--grad1,#a65cff),var(--grad2,#4b63ff));border:none;color:#fff;}
+    #globalPlayer .t-btn svg{width:18px;height:18px;fill:currentColor;}
+    #globalPlayer .t-btn.active{border-color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);}
+    #globalPlayer .wave-wrap{flex:1;min-width:220px;display:flex;align-items:center;gap:10px;}
+    #globalPlayer .wave{position:relative;flex:1;height:26px;border-radius:8px;overflow:hidden;background:repeating-linear-gradient(90deg,rgba(255,255,255,0.12) 0 2px, transparent 2px 4px);cursor:pointer;}
     #globalPlayer .wave-progress{position:absolute;inset:0;width:0%;background:repeating-linear-gradient(90deg,#3f6bff 0 2px, transparent 2px 4px);mix-blend-mode:screen;}
+    #globalPlayer .wave::after{content:\"\";position:absolute;inset:0;border:1px solid rgba(255,255,255,0.06);border-radius:8px;pointer-events:none;}
     #globalPlayer .time{font-size:12px;color:var(--muted,#b6b9c9);white-space:nowrap;}
     #globalPlayer .actions{display:flex;align-items:center;gap:8px;}
     #globalPlayer .volume{display:flex;align-items:center;gap:8px;min-width:120px;}
@@ -518,7 +523,13 @@ function attachProfileInteractions(me, initials) {
       <div class="meta" id="gpMeta"></div>
     </div>
     <div class="player-body">
-      <button class="play-btn" id="gpPlay" type="button">▶</button>
+      <div class="transport">
+        <button class="t-btn" id="gpShuffle" type="button" title="셔플"><svg viewBox="0 0 24 24"><path d="M17 3h4v4h-2V6.41l-4.3 4.3-1.4-1.42L17.59 5H17V3Zm0 14.59.29-.3-4.3-4.29 1.42-1.41 4.3 4.29V15h2v4h-4v-2ZM3 6h4.17l2.58 2.59-1.42 1.41L6.59 8H3V6Zm8.59 4.59 1.42 1.41L9.41 15H3v-2h5.59l3-2.41Z"/></svg></button>
+        <button class="t-btn" id="gpPrev" type="button" title="이전 곡"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6V5Zm3.5 7 9.5 7V5l-9.5 7Z"/></svg></button>
+        <button class="t-btn primary" id="gpPlay" type="button" title="재생/일시정지"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+        <button class="t-btn" id="gpNext" type="button" title="다음 곡"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2V5Zm-2 7-9.5 7V5L14 12Z"/></svg></button>
+        <button class="t-btn" id="gpRepeat" type="button" title="반복"><svg viewBox="0 0 24 24"><path d="M7 7h9v3l4-4-4-4v3H6a4 4 0 0 0-4 4v2h2V9a2 2 0 0 1 2-2Zm10 10H8v-3l-4 4 4 4v-3h10a4 4 0 0 0 4-4v-2h-2v2a2 2 0 0 1-2 2Z"/></svg></button>
+      </div>
       <div class="wave-wrap">
         <span class="time" id="gpTime">0:00</span>
         <div class="wave">
@@ -545,15 +556,30 @@ function attachProfileInteractions(me, initials) {
   const dl = bar.querySelector('#gpDownload');
   const closeBtn = bar.querySelector('#gpClose');
   const playBtn = bar.querySelector('#gpPlay');
+  const shuffleBtn = bar.querySelector('#gpShuffle');
+  const prevBtn = bar.querySelector('#gpPrev');
+  const nextBtn = bar.querySelector('#gpNext');
+  const repeatBtn = bar.querySelector('#gpRepeat');
   const waveFill = bar.querySelector('#gpWave');
+  const wave = bar.querySelector('.wave');
   const timeNow = bar.querySelector('#gpTime');
   const timeTotal = bar.querySelector('#gpDuration');
   const STORAGE_KEY = 'texttune_global_player';
   const SESSION_KEY = 'texttune_global_player_session';
   const volumeInput = bar.querySelector('#gpVolume');
+  const PLAY_ICON = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  const PAUSE_ICON = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z"/></svg>';
   let queue = [];
   let queueIdx = 0;
   let loopQueue = true;
+  let shuffleMode = false;
+  let repeatMode = true;
+  let isScrubbing = false;
+
+  function setPlayVisual(isPlaying) {
+    if (!playBtn) return;
+    playBtn.innerHTML = isPlaying ? PAUSE_ICON : PLAY_ICON;
+  }
 
   function saveState(extra = {}) {
     if (!audio) return;
@@ -564,6 +590,8 @@ function attachProfileInteractions(me, initials) {
       download: dl?.getAttribute('href') || '',
       currentTime: audio.currentTime || 0,
       volume: audio.volume,
+      shuffle: shuffleMode,
+      repeat: repeatMode,
       ...extra,
     };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
@@ -583,11 +611,15 @@ function attachProfileInteractions(me, initials) {
       queue = q;
       queueIdx = index >= 0 ? index : 0;
       loopQueue = loop;
+      repeatMode = loop;
     } else if (track && !q) {
       queue = [track];
       queueIdx = 0;
       loopQueue = loop;
+      repeatMode = loop;
     }
+    if (repeatBtn) repeatBtn.classList.toggle('active', repeatMode);
+    if (shuffleBtn) shuffleBtn.classList.toggle('active', shuffleMode);
     title.textContent = track.title || track.prompt_title || track.prompt_raw || '재생할 트랙';
     meta.textContent = `${track.format || '?'} · ${track.samplerate || '?'}Hz · ${track.duration ? `${Math.round(track.duration)}s` : '?:??'}`;
     audio.src = track.audio_url;
@@ -603,20 +635,39 @@ function attachProfileInteractions(me, initials) {
   }
   function playNext() {
     if (!queue.length) return;
-    queueIdx += 1;
-    if (queueIdx >= queue.length) {
-      if (!loopQueue) return;
-      queueIdx = 0;
+    let nextIdx = queueIdx;
+    if (shuffleMode && queue.length > 1) {
+      do { nextIdx = Math.floor(Math.random() * queue.length); } while (nextIdx === queueIdx);
+    } else {
+      nextIdx = queueIdx + 1;
+      if (nextIdx >= queue.length) {
+        if (!repeatMode) { audio.pause(); return; }
+        nextIdx = 0;
+      }
     }
+    queueIdx = nextIdx;
     const next = queue[queueIdx];
-    if (next) setTrack(next, { autoplay: true, q: queue, index: queueIdx, loop: loopQueue });
+    if (next) setTrack(next, { autoplay: true, q: queue, index: queueIdx, loop: repeatMode });
   }
   function playPrev() {
     if (!queue.length) return;
-    queueIdx -= 1;
-    if (queueIdx < 0) queueIdx = Math.max(queue.length - 1, 0);
+    if (audio && audio.currentTime > 2) {
+      audio.currentTime = 0;
+      return;
+    }
+    let prevIdx = queueIdx;
+    if (shuffleMode && queue.length > 1) {
+      do { prevIdx = Math.floor(Math.random() * queue.length); } while (prevIdx === queueIdx);
+    } else {
+      prevIdx = queueIdx - 1;
+      if (prevIdx < 0) {
+        if (!repeatMode) { audio.currentTime = 0; return; }
+        prevIdx = queue.length - 1;
+      }
+    }
+    queueIdx = prevIdx;
     const prev = queue[queueIdx];
-    if (prev) setTrack(prev, { autoplay: true, q: queue, index: queueIdx, loop: loopQueue });
+    if (prev) setTrack(prev, { autoplay: true, q: queue, index: queueIdx, loop: repeatMode });
   }
 
   function restore() {
@@ -630,12 +681,18 @@ function attachProfileInteractions(me, initials) {
       meta.textContent = st.meta || '';
       dl.href = st.download || st.src;
       audio.src = st.src;
+      shuffleMode = !!st.shuffle;
+      repeatMode = st.repeat !== undefined ? !!st.repeat : true;
+      loopQueue = repeatMode;
+      if (shuffleBtn) shuffleBtn.classList.toggle('active', shuffleMode);
+      if (repeatBtn) repeatBtn.classList.toggle('active', repeatMode);
       if (volumeInput && typeof st.volume === 'number') {
         volumeInput.value = st.volume;
         audio.volume = st.volume;
       }
       bar.style.display = 'flex';
       audio.currentTime = st.currentTime || 0;
+      setPlayVisual(false);
     }
   }
 
@@ -646,6 +703,37 @@ function attachProfileInteractions(me, initials) {
       saveState({ currentTime: audio.currentTime || 0 });
     };
   }
+  function seekFromClientX(clientX) {
+    if (!audio || !audio.duration || !wave) return;
+    const rect = wave.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const newTime = pct * audio.duration;
+    audio.currentTime = newTime;
+    if (waveFill) waveFill.style.width = `${pct * 100}%`;
+    if (timeNow) timeNow.textContent = formatTime(newTime);
+    saveState({ currentTime: newTime });
+  }
+
+  if (wave) {
+    wave.addEventListener('pointerdown', (e) => {
+      isScrubbing = true;
+      wave.setPointerCapture(e.pointerId);
+      seekFromClientX(e.clientX);
+    });
+    wave.addEventListener('pointermove', (e) => {
+      if (!isScrubbing) return;
+      seekFromClientX(e.clientX);
+    });
+    wave.addEventListener('pointerup', (e) => {
+      if (!isScrubbing) return;
+      isScrubbing = false;
+      wave.releasePointerCapture(e.pointerId);
+      seekFromClientX(e.clientX);
+    });
+    wave.addEventListener('pointercancel', () => { isScrubbing = false; });
+    wave.addEventListener('pointerleave', () => { isScrubbing = false; });
+  }
+
   if (audio) {
     const updateProgress = () => {
       if (waveFill) {
@@ -658,8 +746,8 @@ function attachProfileInteractions(me, initials) {
     };
     audio.addEventListener('timeupdate', updateProgress);
     audio.addEventListener('loadedmetadata', updateProgress);
-    audio.addEventListener('play', () => { if (playBtn) playBtn.textContent = '⏸'; });
-    audio.addEventListener('pause', () => { if (playBtn) playBtn.textContent = '▶'; });
+    audio.addEventListener('play', () => setPlayVisual(true));
+    audio.addEventListener('pause', () => setPlayVisual(false));
     audio.addEventListener('ended', () => playNext());
   }
   if (volumeInput && audio) {
@@ -674,6 +762,24 @@ function attachProfileInteractions(me, initials) {
     playBtn.onclick = () => {
       if (audio.paused) audio.play().catch(() => {});
       else audio.pause();
+    };
+  }
+  if (nextBtn) nextBtn.onclick = () => playNext();
+  if (prevBtn) prevBtn.onclick = () => playPrev();
+  if (shuffleBtn) {
+    shuffleBtn.onclick = () => {
+      shuffleMode = !shuffleMode;
+      shuffleBtn.classList.toggle('active', shuffleMode);
+      saveState({ shuffle: shuffleMode });
+    };
+  }
+  if (repeatBtn) {
+    repeatBtn.onclick = () => {
+      repeatMode = !repeatMode;
+      loopQueue = repeatMode;
+      audio.loop = false;
+      repeatBtn.classList.toggle('active', repeatMode);
+      saveState({ repeat: repeatMode });
     };
   }
 

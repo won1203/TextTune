@@ -10,8 +10,13 @@
         --grad1:#a65cff; --grad2:#4b63ff; --sidebar:#0b0d1a;
       }
       *{box-sizing:border-box}
-      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
-      .layout{display:flex;width:100%}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text);display:flex;min-height:100vh;position:relative;overflow:hidden}
+      .bg-glow{position:fixed;inset:0;pointer-events:none;background:
+        radial-gradient(40% 35% at 50% 55%, rgba(166,92,255,0.35), transparent 60%),
+        radial-gradient(32% 32% at 60% 60%, rgba(75,99,255,0.25), transparent 58%),
+        radial-gradient(30% 28% at 40% 40%, rgba(255,77,50,0.18), transparent 60%);
+        filter:blur(10px);z-index:0}
+      .layout{display:flex;width:100%;position:relative;z-index:1}
       .sidebar{width:220px;min-height:100vh;background:var(--sidebar);border-right:1px solid var(--stroke);padding:18px 14px;position:sticky;top:0;align-self:flex-start}
       .side-brand{display:flex;align-items:center;gap:10px;margin-bottom:18px;font-weight:800;color:var(--text);text-decoration:none}
       .side-logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--grad1),var(--grad2));display:grid;place-items:center;font-weight:800;color:#fff}
@@ -28,6 +33,7 @@
     </style>
   </head>
   <body>
+    <div class="bg-glow" aria-hidden="true"></div>
     <div class="layout">
       <aside class="sidebar">
         <a class="side-brand" href="/">

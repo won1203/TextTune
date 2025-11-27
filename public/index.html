@@ -1,0 +1,164 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TexTune | AI 음악 생성</title>
+    <style>
+      :root{
+        --bg:#0f1222; --panel:#191c33; --panel2:#14172a; --stroke:#2a2f55; --text:#e8e8f0; --muted:#aab; --brand:#8ad;
+        --grad1:#a65cff; --grad2:#4b63ff; --sidebar:#0b0d1a;
+      }
+      *{box-sizing:border-box}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text);display:flex;min-height:100vh;position:relative;overflow:hidden}
+      .bg-glow{position:fixed;inset:0;pointer-events:none;background:
+        radial-gradient(40% 35% at 50% 55%, rgba(166,92,255,0.35), transparent 60%),
+        radial-gradient(32% 32% at 60% 60%, rgba(75,99,255,0.25), transparent 58%),
+        radial-gradient(30% 28% at 40% 40%, rgba(255,77,50,0.18), transparent 60%);
+        filter:blur(10px);z-index:0}
+      .layout{display:flex;width:100%;position:relative;z-index:1}
+      .sidebar{width:220px;min-height:100vh;background:var(--sidebar);border-right:1px solid var(--stroke);padding:18px 14px;position:sticky;top:0;align-self:flex-start}
+      .side-brand{display:flex;align-items:center;gap:10px;margin-bottom:18px;font-weight:800;color:var(--text);text-decoration:none}
+      .side-logo{width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,var(--grad1),var(--grad2));display:grid;place-items:center;font-weight:800;color:#fff}
+      .side-nav{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+      .side-nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--text);text-decoration:none;border:1px solid transparent}
+      .side-nav a:hover{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.08)}
+      .side-nav a.active{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.1)}
+      header{display:none}
+      .main{flex:1;padding:42px clamp(20px,4vw,48px) 56px;position:relative}
+      .wrap{max-width:1200px;margin:0 auto;position:relative}
+      .hero-grid{display:grid;grid-template-columns:minmax(320px,520px) 1fr;gap:32px;align-items:center;position:relative}
+      .orb{position:absolute;filter:blur(40px);opacity:0.55;border-radius:50%;z-index:0}
+      .orb.pink{width:360px;height:360px;background:radial-gradient(circle at 30% 40%,rgba(255,77,50,0.35),transparent 60%);top:10%;left:8%}
+      .orb.blue{width:440px;height:440px;background:radial-gradient(circle at 60% 60%,rgba(75,99,255,0.32),transparent 62%);bottom:-12%;right:12%}
+      .copy{position:relative;z-index:1;display:flex;flex-direction:column;gap:14px}
+      .eyebrow{font-weight:700;color:#b9c6ff;text-transform:uppercase;letter-spacing:.08em;font-size:13px}
+      .title{font-size:clamp(34px,4.5vw,54px);line-height:1.1;font-weight:850;margin:0}
+      .lede{color:var(--muted);font-size:17px;line-height:1.6;margin:4px 0 0}
+      .cta-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:4px}
+      .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 18px;border-radius:12px;font-weight:750;text-decoration:none;border:1px solid transparent;transition:all .2s ease;font-size:15px}
+      .btn.primary{background:linear-gradient(120deg,var(--grad1),var(--grad2));color:#fff;box-shadow:0 14px 32px rgba(75,99,255,0.25)}
+      .btn.primary:hover{transform:translateY(-1px);box-shadow:0 18px 42px rgba(75,99,255,0.35)}
+      .btn.ghost{background:rgba(255,255,255,0.05);color:var(--text);border-color:rgba(255,255,255,0.08)}
+      .tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+      .tag{display:inline-flex;align-items:center;gap:6px;padding:9px 12px;border-radius:999px;background:rgba(255,255,255,0.05);color:#d7dbec;font-weight:700;font-size:13px;border:1px solid rgba(255,255,255,0.06)}
+      .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:10px}
+      .stat-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:14px 16px;box-shadow:0 12px 28px rgba(0,0,0,0.22)}
+      .stat-card h3{margin:0;color:#fff;font-size:20px;font-weight:800}
+      .stat-card p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.4}
+      .showcase{position:relative;z-index:1;display:grid;gap:12px}
+      .panel{background:linear-gradient(145deg,rgba(25,28,51,0.9),rgba(20,23,42,0.92));border:1px solid rgba(255,255,255,0.06);border-radius:18px;padding:18px;box-shadow:0 18px 44px rgba(0,0,0,0.32)}
+      .panel-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+      .dot-pulse{width:10px;height:10px;border-radius:50%;background:linear-gradient(120deg,var(--grad1),var(--grad2));box-shadow:0 0 0 0 rgba(166,92,255,0.45);animation:pulse 1.8s infinite}
+      @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(166,92,255,0.45)}70%{box-shadow:0 0 0 12px rgba(166,92,255,0)}100%{box-shadow:0 0 0 0 rgba(166,92,255,0)}}
+      .label{font-size:13px;font-weight:750;color:#cbd3ff;text-transform:uppercase;letter-spacing:.06em}
+      .muted-text{color:var(--muted);font-size:13px}
+      .flow-steps{display:grid;gap:10px;margin:10px 0 12px}
+      .step{display:flex;gap:10px;align-items:flex-start}
+      .step-num{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,0.06);display:grid;place-items:center;font-weight:800;color:#dfe6ff;border:1px solid rgba(255,255,255,0.08)}
+      .step strong{display:block;font-size:15px;color:#fff}
+      .step p{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+      .progress{height:8px;background:rgba(255,255,255,0.06);border-radius:999px;overflow:hidden;position:relative;margin:4px 0 12px}
+      .progress span{display:block;height:100%;width:68%;background:linear-gradient(90deg,var(--grad1),var(--grad2));box-shadow:0 8px 22px rgba(75,99,255,0.38)}
+      .mini-track{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+      .track-meta{display:flex;gap:8px;flex-wrap:wrap}
+      .pill{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:rgba(255,255,255,0.06);color:#eaeaf4;font-weight:700;font-size:12px}
+      .pill.ghost{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)}
+      .wave{height:90px;border-radius:12px;background:radial-gradient(120% 120% at 30% 30%,rgba(166,92,255,0.2),rgba(75,99,255,0.1),rgba(15,18,34,0.1)),repeating-linear-gradient(90deg,rgba(255,255,255,0.06) 0 2px,transparent 2px 6px);border:1px solid rgba(255,255,255,0.04);box-shadow:inset 0 10px 32px rgba(0,0,0,0.35)}
+      .foot{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:13px}
+      .foot a{color:#d7deff;text-decoration:none;font-weight:700}
+      #authUser{color:var(--muted);font-size:12px;margin-top:16px;display:block}
+      @media (max-width:960px){.hero-grid{grid-template-columns:1fr;}.showcase{order:-1}.main{padding:28px 18px 40px}}
+      @media (max-width:620px){.title{font-size:32px}.btn{width:100%;justify-content:center}.stat-grid{grid-template-columns:1fr}}
+    </style>
+  </head>
+  <body>
+    <div class="bg-glow" aria-hidden="true"></div>
+    <div class="layout">
+      <aside class="sidebar">
+        <a class="side-brand" href="/">
+          <div class="side-logo">TT</div>
+          <span>TexTune</span>
+        </a>
+        <nav class="side-nav">
+          <a href="/" class="active">홈</a>
+          <a href="generate.html">트랙 생성</a>
+          <a href="library.html">라이브러리</a>
+          <a id="authAction" href="login.html">로그인</a>
+        </nav>
+        <span id="authUser"></span>
+      </aside>
+      <main class="main">
+        <div class="wrap hero-grid">
+          <div class="orb pink" aria-hidden="true"></div>
+          <div class="orb blue" aria-hidden="true"></div>
+          <section class="copy">
+            <p class="eyebrow">TexTune</p>
+            <h1 class="title">텍스트를 곧바로 사운드로 만들어보세요</h1>
+            <p class="lede">한 줄 아이디어로 공기감 있는 비트, 오케스트라의 웅장함, 감각적인 로파이를 몇 초 만에 완성하세요.</p>
+            <div class="cta-row">
+              <a class="btn primary" href="generate.html">TexTune 시작하기</a>
+              <a class="btn ghost" href="library.html">최근 트랙 듣기</a>
+            </div>
+            <div class="tags">
+              <span class="tag">실시간 생성</span>
+              <span class="tag">장르 믹스 &amp; 질감</span>
+              <span class="tag">고해상도 오디오 플레이어</span>
+            </div>
+          </section>
+          <section class="showcase">
+            <div class="panel">
+              <div class="panel-head">
+                <span class="dot-pulse" aria-hidden="true"></span>
+                <div>
+                  <div class="label">생성 플로우</div>
+                  <div class="muted-text">3단계로 텍스트를 멜로디로 번역</div>
+                </div>
+              </div>
+              <div class="flow-steps">
+                <div class="step">
+                  <span class="step-num">01</span>
+                  <div>
+                    <strong>프롬프트 작성</strong>
+                    <p>장르, 악기, 무드 한 줄이면 충분</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="step-num">02</span>
+                  <div>
+                    <strong>AI 생성</strong>
+                    <p>바로 변환, 원하는 만큼 다른 take</p>
+                  </div>
+                </div>
+                <div class="step">
+                  <span class="step-num">03</span>
+                  <div>
+                    <strong>감상 &amp; 공유</strong>
+                    <p>라이브러리/플레이리스트에서 바로 배포</p>
+                  </div>
+                </div>
+              </div>
+              <div class="progress" aria-hidden="true"><span></span></div>
+              <div class="mini-track">
+                <div class="track-meta">
+                  <span class="pill">Synthwave</span>
+                  <span class="pill ghost">122 BPM</span>
+                  <span class="pill ghost">48kHz</span>
+                </div>
+                <div class="wave" aria-hidden="true"></div>
+                <div class="foot">
+                  <span>생성된 트랙은 항상 음악가의 것</span>
+                  <a href="library.html">라이브러리 열기</a>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+      hydrateAuthControls();
+    </script>
+  </body>
+</html>

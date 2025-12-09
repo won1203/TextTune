@@ -580,6 +580,22 @@ function attachProfileInteractions(me, initials) {
     if (!playBtn) return;
     playBtn.innerHTML = isPlaying ? PAUSE_ICON : PLAY_ICON;
   }
+  function clearSavedState() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+  }
+
+  function closePlayer() {
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.src = '';
+    }
+    queue = [];
+    queueIdx = 0;
+    bar.style.display = 'none';
+    clearSavedState();
+  }
 
   function saveState(extra = {}) {
     if (!audio) return;
@@ -697,11 +713,7 @@ function attachProfileInteractions(me, initials) {
   }
 
   if (closeBtn) {
-    closeBtn.onclick = () => {
-      audio.pause();
-      bar.style.display = 'none';
-      saveState({ currentTime: audio.currentTime || 0 });
-    };
+    closeBtn.onclick = () => closePlayer();
   }
   function seekFromClientX(clientX) {
     if (!audio || !audio.duration || !wave) return;
@@ -785,5 +797,12 @@ function attachProfileInteractions(me, initials) {
 
   restore();
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bar.style.display !== 'none') {
+      closePlayer();
+    }
+  });
+
+  window.closeGlobalPlayer = closePlayer;
   window.setGlobalPlayerTrack = setTrack;
 })();

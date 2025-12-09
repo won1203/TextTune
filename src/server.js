@@ -28,6 +28,9 @@ const googleOAuthClient = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
   ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
   : null;
 
+const STORAGE_ROOT = path.join(__dirname, '..', 'storage');
+const STORAGE_SEGMENT = `${path.sep}storage${path.sep}`.toLowerCase();
+
 const app = express();
 initDb();
 
@@ -65,6 +68,47 @@ function purgeAuthStates() {
   for (const [key, val] of authStates) {
     if ((now - val.createdAt) > STATE_TTL_MS) authStates.delete(key);
   }
+}
+
+function resolveTrackFilePath(track) {
+  const stored = track?.storage_key_original;
+  if (!stored) return null;
+  if (fs.existsSync(stored)) return stored;
+
+  const lower = stored.toLowerCase();
+  const markerIdx = lower.lastIndexOf(STORAGE_SEGMENT);
+  if (markerIdx >= 0) {
+    const relative = stored.slice(markerIdx + STORAGE_SEGMENT.length);
+    const rebased = path.join(STORAGE_ROOT, relative);
+    if (fs.existsSync(rebased)) return rebased;
+  }
+
+  const filename = path.basename(stored);
+  const userDir = track.user_id || track.userId || path.basename(path.dirname(stored));
+  if (userDir) {
+    const fallback = path.join(STORAGE_ROOT, userDir, filename);
+    if (fs.existsSync(fallback)) return fallback;
+  }
+
+  return null;
+}
+
+function pipeFile(res, filePath, options = undefined) {
+  let stream;
+  try {
+    stream = fs.createReadStream(filePath, options);
+  } catch (err) {
+    console.error('Failed to open file for streaming', err);
+    if (!res.headersSent) res.status(404).end();
+    else res.destroy(err);
+    return;
+  }
+  stream.on('error', (err) => {
+    console.error('File stream failed', err);
+    if (!res.headersSent) res.status(404).end();
+    else res.destroy(err);
+  });
+  stream.pipe(res);
 }
 
 app.use(morgan('dev'));
@@ -263,7 +307,7 @@ async function runJob(job) {
       throw new Error('HF_SPACE_ID is not configured.');
     }
 
-    const tracksDir = path.join(__dirname, '..', 'storage', job.userId);
+    const tracksDir = path.join(STORAGE_ROOT, job.userId);
     const trackId = uuidv4();
     const renderInfo = await generateSpaceAudioTrack({
       prompt: job.prompt_expanded,
@@ -435,7 +479,10 @@ app.get('/v1/library', authRequired, (req, res) => {
 app.delete('/v1/library/:trackId', authRequired, (req, res) => {
   const t = tracksRepo.deleteByIdForUser(req.params.trackId, req.user.userId);
   if (!t) return res.status(404).json({ error: 'not_found' });
-  try { fs.unlinkSync(t.storage_key_original); } catch {}
+  const filePath = resolveTrackFilePath(t);
+  if (filePath) {
+    try { fs.unlinkSync(filePath); } catch {}
+  }
   res.json({ ok: true });
 });
 
@@ -462,9 +509,15 @@ app.get('/v1/tracks/:trackId', authRequired, (req, res) => {
 app.get('/v1/stream/:trackId', authRequired, (req, res) => {
   const t = tracksRepo.findByIdForUser(req.params.trackId, req.user.userId);
   if (!t) return res.status(404).end();
-  const file = t.storage_key_original;
-  if (!fs.existsSync(file)) return res.status(404).end();
-  const stat = fs.statSync(file);
+  const file = resolveTrackFilePath(t);
+  if (!file) return res.status(404).end();
+
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch (err) {
+    return res.status(404).end();
+  }
   const fileSize = stat.size;
   const range = req.headers.range;
   const mimeType = contentTypeForFormat(t.format);
@@ -480,13 +533,13 @@ app.get('/v1/stream/:trackId', authRequired, (req, res) => {
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
     });
-    fs.createReadStream(file, { start, end }).pipe(res);
+    pipeFile(res, file, { start, end });
   } else {
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': mimeType,
     });
-    fs.createReadStream(file).pipe(res);
+    pipeFile(res, file);
   }
 });
 
@@ -496,9 +549,11 @@ app.get('/v1/download/:trackId', authRequired, (req, res) => {
   if (!t) return res.status(404).end();
   const ext = (t.format || 'wav').toLowerCase();
   const mimeType = contentTypeForFormat(ext);
+  const filePath = resolveTrackFilePath(t);
+  if (!filePath) return res.status(404).end();
   res.setHeader('Content-Disposition', `attachment; filename="texttune-${t.id}.${ext}"`);
   res.setHeader('Content-Type', mimeType);
-  fs.createReadStream(t.storage_key_original).pipe(res);
+  pipeFile(res, filePath);
 });
 
 // Playlists

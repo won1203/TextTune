@@ -64,31 +64,7 @@ npm start         # http://localhost:4000
 ```
 Express가 `public/`을 정적으로 서빙하므로 별도 프런트 빌드가 없습니다.
 
-## 7. 환경 변수(.env 예시)
-```
-PORT=4000
-JWT_SECRET=change-me
-ALLOW_ORIGIN=http://localhost:4000
-MAX_DURATION_SECONDS=30
-DEFAULT_DURATION_SECONDS=30
-
-# Hugging Face
-HF_SPACE_ID=TheStageAI/Elastic-musicgen-large
-HF_API_TOKEN=hf_xxx   # 비공개 Space이거나 ZeroGPU 쿼터 확장 시 필요
-
-# Prompt translation (optional)
-GOOGLE_TRANSLATE_API_KEY=your_google_translation_key
-GOOGLE_TRANSLATE_SOURCE_LANG=ko
-GOOGLE_TRANSLATE_TARGET_LANG=en
-
-# Google OAuth (선택)
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=http://localhost:4000/v1/auth/google/callback
-```
-- 실서비스에서는 `.env`를 커밋하지 말고, 위 값들을 개별 발급/회전하세요.
-
-## 8. 사용자 플로우(UX)
+## 7. 사용자 플로우(UX)
 1) 랜딩 → 로그인  
    - `index.html`에서 “TexTune 시작하기” 클릭 → 로그인 모달(이메일/Google OAuth) → 쿠키로 세션 유지.  
 2) 트랙 생성  
@@ -102,15 +78,9 @@ GOOGLE_REDIRECT_URI=http://localhost:4000/v1/auth/google/callback
 6) 글로벌 플레이어  
    - 모든 페이지 하단에 고정. 셔플/반복/볼륨/다운로드 제공, 로컬 스토리지로 상태를 기억해 페이지 이동 후에도 이어서 재생.
 
-## 9. 주요 API 요약
+## 8. 주요 API 요약
 - 인증: `POST /v1/auth/login`, `POST /v1/auth/logout`, `GET /v1/me`, `PATCH /v1/me`, `GET /v1/auth/google/*`
 - 생성: `POST /v1/generations`, `GET /v1/generations/:id`
 - 라이브러리: `GET /v1/library`, `DELETE /v1/library/:id`
 - 트랙: `GET /v1/tracks/:id`, `GET /v1/stream/:id`, `GET /v1/download/:id`
 - 플레이리스트: `GET/POST /v1/playlists`, `GET /v1/playlists/:id`, `POST /v1/playlists/:id/tracks`, `DELETE /v1/playlists/:playlistId`, `DELETE /v1/playlists/:playlistId/tracks/:trackId`
-
-## 10. 운영/제한 사항
-- 단일 프로세스 인메모리 큐이므로 멀티 인스턴스/수평 확장 시 외부 큐(예: Redis)로 대체가 필요합니다.
-- 파일 경로는 `storage/` 하드코딩 기반이므로 컨테이너 재시작 시 데이터를 유지하려면 볼륨 마운트가 필수입니다.
-- 글로벌 플레이어/플레이리스트 UI 일부에 인코딩 깨짐이 존재할 수 있으니 배포 전에 폰트/문자셋 검증을 권장합니다.
-- Node 런타임에 `fetch`가 없으면 `translate/google.js`/`spaces.js`가 실패하므로 Node 18+를 사용하거나 폴리필을 추가하세요.
